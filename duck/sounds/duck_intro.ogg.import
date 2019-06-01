@@ -1,0 +1,15 @@
+[remap]
+
+importer="ogg_vorbis"
+type="AudioStreamOGGVorbis"
+path="res://.import/duck_intro.ogg-75ff4c73f791e148447ced02042586f3.oggstr"
+
+[deps]
+
+source_file="res://sounds/duck_intro.ogg"
+dest_files=[ "res://.import/duck_intro.ogg-75ff4c73f791e148447ced02042586f3.oggstr" ]
+
+[params]
+
+loop=true
+loop_offset=0

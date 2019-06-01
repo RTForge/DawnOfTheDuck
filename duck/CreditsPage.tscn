@@ -1,0 +1,62 @@
+[gd_scene load_steps=5 format=2]
+
+[ext_resource path="res://fonts/MenuItem.tres" type="DynamicFont" id=1]
+[ext_resource path="res://fonts/Raleway-Medium.ttf" type="DynamicFontData" id=2]
+[ext_resource path="res://CreditsLabel.gd" type="Script" id=3]
+
+[sub_resource type="DynamicFont" id=1]
+font_data = ExtResource( 2 )
+
+[node name="CreditsPage" type="ColorRect"]
+visible = false
+margin_right = 8.0
+margin_bottom = 8.0
+rect_min_size = Vector2( 640, 480 )
+color = Color( 0.501961, 0.501961, 0.501961, 0.501961 )
+
+[node name="CreditsLabel" type="RichTextLabel" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+margin_left = 4.0
+margin_top = 4.0
+margin_right = -4.0
+margin_bottom = -4.0
+size_flags_horizontal = 3
+size_flags_vertical = 3
+custom_fonts/bold_font = ExtResource( 1 )
+custom_fonts/normal_font = SubResource( 1 )
+bbcode_enabled = true
+bbcode_text = "[center][b]Credits[/b][/center]
+
+[indent]
+Created for the [url=https://itch.io/jam/godot-31-stable-party-jam-3d-only]Godot 3.1 Stable Release Party Jam[/url] by Jon Ring.
+
+[indent]
+Game Engine: [url=https://godotengine.org/license]Godot 3.1 Stable[/url].
+Additional Physics: [url=https://gitlab.com/ringtechsolutions/godot-tools/hydro/hydro/]Hydro[/url] module for Godot.
+Models: Made with Blender by Jon Ring.
+Duck model adapted from work by [url=https://www.blendswap.com/blends/view/69071]mStuff[/url].
+Textures: Made with the GIMP by Jon Ring.
+Backround from [url=https://hdrihaven.com/hdri/?c=indoor&h=en_suite]HDRIHaven[/url].
+Sounds adapted from work by [url=https://freesound.org/people/CarlosCarty/sounds/440784/]Carlos Carty[/url] and others at [url=https://freesound.org/]freesound[/url].
+Fonts: [url=https://fonts.google.com/specimen/Sigmar+One]Sigmar One[/url] and [url=https://fonts.google.com/specimen/Raleway]Raleway[/url].
+[/indent]
+[/indent]"
+text = "Credits
+
+	
+Created for the Godot 3.1 Stable Release Party Jam by Jon Ring.
+
+	
+Game Engine: Godot 3.1 Stable.
+Additional Physics: Hydro module for Godot.
+Models: Made with Blender by Jon Ring.
+Duck model adapted from work by mStuff.
+Textures: Made with the GIMP by Jon Ring.
+Backround from HDRIHaven.
+Sounds adapted from work by Carlos Carty and others at freesound.
+Fonts: Sigmar One and Raleway.
+
+"
+script = ExtResource( 3 )
+[connection signal="meta_clicked" from="CreditsLabel" to="CreditsLabel" method="_on_CreditsLabel_meta_clicked"]

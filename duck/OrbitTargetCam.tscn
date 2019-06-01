@@ -1,0 +1,29 @@
+[gd_scene load_steps=4 format=2]
+
+[ext_resource path="res://OrbitTargetCam.gd" type="Script" id=1]
+
+[sub_resource type="SpatialMaterial" id=1]
+albedo_color = Color( 1, 0, 0, 1 )
+emission_enabled = true
+emission = Color( 1, 0, 0, 1 )
+emission_energy = 1.0
+emission_operator = 0
+emission_on_uv2 = false
+
+[sub_resource type="SphereMesh" id=2]
+material = SubResource( 1 )
+radial_segments = 16
+rings = 16
+
+[node name="OrbitTargetCam" type="Spatial"]
+script = ExtResource( 1 )
+distance = 10.0
+height = 5.0
+
+[node name="Camera" type="Camera" parent="."]
+transform = Transform( 1, 0, 0, 0, 0.984808, 0.173648, 0, -0.173648, 0.984808, 0, 0, 0 )
+far = 1000.0
+
+[node name="Crosshair" type="MeshInstance" parent="."]
+mesh = SubResource( 2 )
+material/0 = null
