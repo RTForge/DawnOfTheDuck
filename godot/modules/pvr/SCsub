@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
-Import('env')
-Import('env_modules')
+Import("env")
+Import("env_modules")
 
 env_pvr = env_modules.Clone()
 
@@ -17,7 +17,7 @@ thirdparty_sources = [
 ]
 thirdparty_sources = [thirdparty_dir + file for file in thirdparty_sources]
 
-env_pvr.Append(CPPPATH=[thirdparty_dir])
+env_pvr.Prepend(CPPPATH=[thirdparty_dir])
 
 env_thirdparty = env_pvr.Clone()
 env_thirdparty.disable_warnings()

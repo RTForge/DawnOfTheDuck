@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -126,16 +126,16 @@ void BulletPhysicsDirectBodyState::add_torque(const Vector3 &p_torque) {
 	body->apply_torque(p_torque);
 }
 
-void BulletPhysicsDirectBodyState::apply_central_impulse(const Vector3 &p_j) {
-	body->apply_central_impulse(p_j);
+void BulletPhysicsDirectBodyState::apply_central_impulse(const Vector3 &p_impulse) {
+	body->apply_central_impulse(p_impulse);
 }
 
-void BulletPhysicsDirectBodyState::apply_impulse(const Vector3 &p_pos, const Vector3 &p_j) {
-	body->apply_impulse(p_pos, p_j);
+void BulletPhysicsDirectBodyState::apply_impulse(const Vector3 &p_pos, const Vector3 &p_impulse) {
+	body->apply_impulse(p_pos, p_impulse);
 }
 
-void BulletPhysicsDirectBodyState::apply_torque_impulse(const Vector3 &p_j) {
-	body->apply_torque_impulse(p_j);
+void BulletPhysicsDirectBodyState::apply_torque_impulse(const Vector3 &p_impulse) {
+	body->apply_torque_impulse(p_impulse);
 }
 
 void BulletPhysicsDirectBodyState::set_sleep_state(bool p_enable) {
@@ -337,6 +337,7 @@ void RigidBodyBullet::set_space(SpaceBullet *p_space) {
 	// Clear the old space if there is one
 	if (space) {
 		can_integrate_forces = false;
+		isScratchedSpaceOverrideModificator = false;
 
 		// Remove all eventual constraints
 		assert_no_constraints();
@@ -411,6 +412,8 @@ void RigidBodyBullet::on_collision_filters_change() {
 	if (space) {
 		space->reload_collision_filters(this);
 	}
+
+	set_activation_state(true);
 }
 
 void RigidBodyBullet::on_collision_checker_start() {
@@ -471,7 +474,7 @@ void RigidBodyBullet::assert_no_constraints() {
 
 void RigidBodyBullet::set_activation_state(bool p_active) {
 	if (p_active) {
-		btBody->setActivationState(ACTIVE_TAG);
+		btBody->activate();
 	} else {
 		btBody->setActivationState(WANTS_DEACTIVATION);
 	}
@@ -501,15 +504,18 @@ void RigidBodyBullet::set_param(PhysicsServer::BodyParameter p_param, real_t p_v
 		}
 		case PhysicsServer::BODY_PARAM_LINEAR_DAMP:
 			linearDamp = p_value;
-			btBody->setDamping(linearDamp, angularDamp);
+			// Mark for updating total linear damping.
+			scratch_space_override_modificator();
 			break;
 		case PhysicsServer::BODY_PARAM_ANGULAR_DAMP:
 			angularDamp = p_value;
-			btBody->setDamping(linearDamp, angularDamp);
+			// Mark for updating total angular damping.
+			scratch_space_override_modificator();
 			break;
 		case PhysicsServer::BODY_PARAM_GRAVITY_SCALE:
 			gravity_scale = p_value;
-			/// The Bullet gravity will be is set by reload_space_override_modificator
+			// The Bullet gravity will be is set by reload_space_override_modificator.
+			// Mark for updating total gravity scale.
 			scratch_space_override_modificator();
 			break;
 		default:
@@ -597,6 +603,8 @@ void RigidBodyBullet::set_state(PhysicsServer::BodyState p_state, const Variant 
 			if (!can_sleep) {
 				// Can't sleep
 				btBody->forceActivationState(DISABLE_DEACTIVATION);
+			} else {
+				btBody->forceActivationState(ACTIVE_TAG);
 			}
 			break;
 	}
@@ -726,12 +734,12 @@ bool RigidBodyBullet::is_axis_locked(PhysicsServer::BodyAxis p_axis) const {
 
 void RigidBodyBullet::reload_axis_lock() {
 
-	btBody->setLinearFactor(btVector3(!is_axis_locked(PhysicsServer::BODY_AXIS_LINEAR_X), !is_axis_locked(PhysicsServer::BODY_AXIS_LINEAR_Y), !is_axis_locked(PhysicsServer::BODY_AXIS_LINEAR_Z)));
+	btBody->setLinearFactor(btVector3(float(!is_axis_locked(PhysicsServer::BODY_AXIS_LINEAR_X)), float(!is_axis_locked(PhysicsServer::BODY_AXIS_LINEAR_Y)), float(!is_axis_locked(PhysicsServer::BODY_AXIS_LINEAR_Z))));
 	if (PhysicsServer::BODY_MODE_CHARACTER == mode) {
 		/// When character angular is always locked
 		btBody->setAngularFactor(btVector3(0., 0., 0.));
 	} else {
-		btBody->setAngularFactor(btVector3(!is_axis_locked(PhysicsServer::BODY_AXIS_ANGULAR_X), !is_axis_locked(PhysicsServer::BODY_AXIS_ANGULAR_Y), !is_axis_locked(PhysicsServer::BODY_AXIS_ANGULAR_Z)));
+		btBody->setAngularFactor(btVector3(float(!is_axis_locked(PhysicsServer::BODY_AXIS_ANGULAR_X)), float(!is_axis_locked(PhysicsServer::BODY_AXIS_ANGULAR_Y)), float(!is_axis_locked(PhysicsServer::BODY_AXIS_ANGULAR_Z))));
 	}
 }
 
@@ -739,22 +747,20 @@ void RigidBodyBullet::set_continuous_collision_detection(bool p_enable) {
 	if (p_enable) {
 		// This threshold enable CCD if the object moves more than
 		// 1 meter in one simulation frame
-		btBody->setCcdMotionThreshold(0.1);
+		btBody->setCcdMotionThreshold(1e-7);
 
 		/// Calculate using the rule writte below the CCD swept sphere radius
 		///     CCD works on an embedded sphere of radius, make sure this radius
 		///     is embedded inside the convex objects, preferably smaller:
 		///     for an object of dimensions 1 meter, try 0.2
-		btScalar radius;
+		btScalar radius(1.0);
 		if (btBody->getCollisionShape()) {
 			btVector3 center;
 			btBody->getCollisionShape()->getBoundingSphere(center, radius);
-		} else {
-			radius = 0;
 		}
 		btBody->setCcdSweptSphereRadius(radius * 0.2);
 	} else {
-		btBody->setCcdMotionThreshold(0.);
+		btBody->setCcdMotionThreshold(10000.0);
 		btBody->setCcdSweptSphereRadius(0.);
 	}
 }
@@ -793,12 +799,12 @@ Vector3 RigidBodyBullet::get_angular_velocity() const {
 
 void RigidBodyBullet::set_transform__bullet(const btTransform &p_global_transform) {
 	if (mode == PhysicsServer::BODY_MODE_KINEMATIC) {
-		if (space)
+		if (space && space->get_delta_time() != 0)
 			btBody->setLinearVelocity((p_global_transform.getOrigin() - btBody->getWorldTransform().getOrigin()) / space->get_delta_time());
 		// The kinematic use MotionState class
 		godotMotionState->moveBody(p_global_transform);
 	} else {
-		// Is necesasry to avoid wrong location on the rendering side on the next frame
+		// Is necessary to avoid wrong location on the rendering side on the next frame
 		godotMotionState->setWorldTransform(p_global_transform);
 	}
 	CollisionObjectBullet::set_transform__bullet(p_global_transform);
@@ -832,7 +838,7 @@ void RigidBodyBullet::reload_shapes() {
 	btBody->updateInertiaTensor();
 
 	reload_kinematic_shapes();
-
+	set_continuous_collision_detection(btBody->getCcdMotionThreshold() < 9998.0);
 	reload_body();
 }
 
@@ -852,8 +858,8 @@ void RigidBodyBullet::on_enter_area(AreaBullet *p_area) {
 		} else {
 			if (areasWhereIam[i]->get_spOv_priority() > p_area->get_spOv_priority()) {
 				// The position was found, just shift all elements
-				for (int j = i; j < areaWhereIamCount; ++j) {
-					areasWhereIam.write[j + 1] = areasWhereIam[j];
+				for (int j = areaWhereIamCount; j > i; j--) {
+					areasWhereIam.write[j] = areasWhereIam[j - 1];
 				}
 				areasWhereIam.write[i] = p_area;
 				break;
@@ -866,7 +872,7 @@ void RigidBodyBullet::on_enter_area(AreaBullet *p_area) {
 
 	if (p_area->is_spOv_gravityPoint()) {
 		++countGravityPointSpaces;
-		assert(0 < countGravityPointSpaces);
+		ERR_FAIL_COND(countGravityPointSpaces <= 0);
 	}
 }
 
@@ -888,7 +894,7 @@ void RigidBodyBullet::on_exit_area(AreaBullet *p_area) {
 	if (wasTheAreaFound) {
 		if (p_area->is_spOv_gravityPoint()) {
 			--countGravityPointSpaces;
-			assert(0 <= countGravityPointSpaces);
+			ERR_FAIL_COND(countGravityPointSpaces < 0);
 		}
 
 		--areaWhereIamCount;
@@ -900,25 +906,24 @@ void RigidBodyBullet::on_exit_area(AreaBullet *p_area) {
 }
 
 void RigidBodyBullet::reload_space_override_modificator() {
-
 	// Make sure that kinematic bodies have their total gravity calculated
 	if (!is_active() && PhysicsServer::BODY_MODE_KINEMATIC != mode)
 		return;
 
-	Vector3 newGravity(space->get_gravity_direction() * space->get_gravity_magnitude());
-	real_t newLinearDamp(linearDamp);
-	real_t newAngularDamp(angularDamp);
+	Vector3 newGravity(0.0, 0.0, 0.0);
+	real_t newLinearDamp = MAX(0.0, linearDamp);
+	real_t newAngularDamp = MAX(0.0, angularDamp);
 
 	AreaBullet *currentArea;
 	// Variable used to calculate new gravity for gravity point areas, it is pointed by currentGravity pointer
 	Vector3 support_gravity(0, 0, 0);
 
-	int countCombined(0);
-	for (int i = areaWhereIamCount - 1; 0 <= i; --i) {
+	bool stopped = false;
+	for (int i = areaWhereIamCount - 1; (0 <= i) && !stopped; --i) {
 
 		currentArea = areasWhereIam[i];
 
-		if (PhysicsServer::AREA_SPACE_OVERRIDE_DISABLED == currentArea->get_spOv_mode()) {
+		if (!currentArea || PhysicsServer::AREA_SPACE_OVERRIDE_DISABLED == currentArea->get_spOv_mode()) {
 			continue;
 		}
 
@@ -963,7 +968,6 @@ void RigidBodyBullet::reload_space_override_modificator() {
 				newGravity += support_gravity;
 				newLinearDamp += currentArea->get_spOv_linearDamp();
 				newAngularDamp += currentArea->get_spOv_angularDamp();
-				++countCombined;
 				break;
 			case PhysicsServer::AREA_SPACE_OVERRIDE_COMBINE_REPLACE:
 				/// This area adds its gravity/damp values to whatever has been calculated
@@ -972,32 +976,31 @@ void RigidBodyBullet::reload_space_override_modificator() {
 				newGravity += support_gravity;
 				newLinearDamp += currentArea->get_spOv_linearDamp();
 				newAngularDamp += currentArea->get_spOv_angularDamp();
-				++countCombined;
-				goto endAreasCycle;
+				stopped = true;
+				break;
 			case PhysicsServer::AREA_SPACE_OVERRIDE_REPLACE:
 				/// This area replaces any gravity/damp, even the default one, and
 				/// stops taking into account the rest of the areas.
 				newGravity = support_gravity;
 				newLinearDamp = currentArea->get_spOv_linearDamp();
 				newAngularDamp = currentArea->get_spOv_angularDamp();
-				countCombined = 1;
-				goto endAreasCycle;
+				stopped = true;
+				break;
 			case PhysicsServer::AREA_SPACE_OVERRIDE_REPLACE_COMBINE:
 				/// This area replaces any gravity/damp calculated so far, but keeps
 				/// calculating the rest of the areas, down to the default one.
 				newGravity = support_gravity;
 				newLinearDamp = currentArea->get_spOv_linearDamp();
 				newAngularDamp = currentArea->get_spOv_angularDamp();
-				countCombined = 1;
 				break;
 		}
 	}
-endAreasCycle:
 
-	if (1 < countCombined) {
-		newGravity /= countCombined;
-		newLinearDamp /= countCombined;
-		newAngularDamp /= countCombined;
+	// Add default gravity and damping from space.
+	if (!stopped) {
+		newGravity += space->get_gravity_direction() * space->get_gravity_magnitude();
+		newLinearDamp += space->get_linear_damp();
+		newAngularDamp += space->get_angular_damp();
 	}
 
 	btVector3 newBtGravity;

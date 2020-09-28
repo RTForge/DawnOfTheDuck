@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,6 +31,8 @@
 #ifndef OS_OSX_H
 #define OS_OSX_H
 
+#define BitMap _QDBitMap // Suppress deprecated QuickDraw definition.
+
 #include "core/os/input.h"
 #include "crash_handler_osx.h"
 #include "drivers/coreaudio/audio_driver_coreaudio.h"
@@ -49,10 +51,8 @@
 #include <ApplicationServices/ApplicationServices.h>
 #include <CoreVideo/CoreVideo.h>
 
+#undef BitMap
 #undef CursorShape
-/**
-	@author Juan Linietsky <reduzio@gmail.com>
-*/
 
 class OS_OSX : public OS_Unix {
 public:
@@ -60,9 +60,17 @@ public:
 		unsigned int osx_state;
 		bool pressed;
 		bool echo;
+		bool raw;
 		uint32_t scancode;
 		uint32_t unicode;
 	};
+
+	struct WarpEvent {
+		NSTimeInterval timestamp;
+		NSPoint delta;
+	};
+	List<WarpEvent> warp_events;
+	NSTimeInterval last_warp = 0;
 
 	Vector<KeyEvent> key_event_buffer;
 	int key_event_pos;
@@ -74,8 +82,6 @@ public:
 
 	List<String> args;
 	MainLoop *main_loop;
-
-	IP_Unix *ip_unix;
 
 #ifdef COREAUDIO_ENABLED
 	AudioDriverCoreAudio audio_driver;
@@ -109,12 +115,10 @@ public:
 	NSOpenGLContext *context;
 
 	bool layered_window;
-	bool waiting_for_vsync;
-	NSCondition *vsync_condition;
-	CVDisplayLinkRef displayLink;
 
 	CursorShape cursor_shape;
 	NSCursor *cursors[CURSOR_MAX];
+	Map<CursorShape, Vector<Variant> > cursors_cache;
 	MouseMode mouse_mode;
 
 	String title;
@@ -122,6 +126,8 @@ public:
 	bool maximized;
 	bool zoomed;
 	bool resizable;
+	bool window_focused;
+	bool on_top;
 
 	Size2 window_size;
 	Rect2 restore_rect;
@@ -133,24 +139,38 @@ public:
 	String im_text;
 	Point2 im_selection;
 
+	Size2 min_size;
+	Size2 max_size;
+
 	PowerOSX *power_manager;
 
 	CrashHandler crash_handler;
-
-	float _mouse_scale(float p_scale) {
-		if (_display_scale() > 1.0)
-			return p_scale;
-		else
-			return 1.0;
-	}
-
-	float _display_scale() const;
-	float _display_scale(id screen) const;
 
 	void _update_window();
 
 	int video_driver_index;
 	virtual int get_current_video_driver() const;
+
+	struct GlobalMenuItem {
+		String label;
+		Variant signal;
+		Variant meta;
+
+		GlobalMenuItem() {
+			//NOP
+		}
+
+		GlobalMenuItem(const String &p_label, const Variant &p_signal, const Variant &p_meta) {
+			label = p_label;
+			signal = p_signal;
+			meta = p_meta;
+		}
+	};
+
+	Map<String, Vector<GlobalMenuItem> > global_menus;
+	List<String> global_menus_order;
+
+	void _update_global_menu();
 
 protected:
 	virtual void initialize_core();
@@ -163,15 +183,21 @@ protected:
 public:
 	static OS_OSX *singleton;
 
+	void global_menu_add_item(const String &p_menu, const String &p_label, const Variant &p_signal, const Variant &p_meta);
+	void global_menu_add_separator(const String &p_menu);
+	void global_menu_remove_item(const String &p_menu, int p_idx);
+	void global_menu_clear(const String &p_menu);
+
 	void wm_minimized(bool p_minimized);
 
-	virtual String get_name();
+	virtual String get_name() const;
 
 	virtual void alert(const String &p_alert, const String &p_title = "ALERT!");
 
 	virtual Error open_dynamic_library(const String p_path, void *&p_library_handle, bool p_also_set_library_path = false);
 
 	virtual void set_cursor_shape(CursorShape p_shape);
+	virtual CursorShape get_cursor_shape() const;
 	virtual void set_custom_mouse_cursor(const RES &p_cursor, CursorShape p_shape, const Vector2 &p_hotspot);
 
 	virtual void set_mouse_show(bool p_show);
@@ -180,11 +206,13 @@ public:
 	virtual void warp_mouse_position(const Point2 &p_to);
 	virtual Point2 get_mouse_position() const;
 	virtual int get_mouse_button_state() const;
+	void update_real_mouse_position();
 	virtual void set_window_title(const String &p_title);
 
 	virtual Size2 get_window_size() const;
 	virtual Size2 get_real_window_size() const;
 
+	virtual void set_native_icon(const String &p_filename);
 	virtual void set_icon(const Ref<Image> &p_icon);
 
 	virtual MainLoop *get_main_loop() const;
@@ -192,6 +220,7 @@ public:
 	virtual String get_config_path() const;
 	virtual String get_data_path() const;
 	virtual String get_cache_path() const;
+	virtual String get_bundle_resource_dir() const;
 	virtual String get_godot_dir_name() const;
 
 	virtual String get_system_dir(SystemDir p_dir) const;
@@ -217,6 +246,11 @@ public:
 	virtual String get_executable_path() const;
 
 	virtual LatinKeyboardVariant get_latin_keyboard_variant() const;
+	virtual int keyboard_get_layout_count() const;
+	virtual int keyboard_get_current_layout() const;
+	virtual void keyboard_set_current_layout(int p_index);
+	virtual String keyboard_get_layout_language(int p_index) const;
+	virtual String keyboard_get_layout_name(int p_index) const;
 
 	virtual void move_window_to_foreground();
 
@@ -226,9 +260,15 @@ public:
 	virtual Point2 get_screen_position(int p_screen = -1) const;
 	virtual Size2 get_screen_size(int p_screen = -1) const;
 	virtual int get_screen_dpi(int p_screen = -1) const;
+	virtual float get_screen_scale(int p_screen = -1) const;
+	virtual float get_screen_max_scale() const;
 
 	virtual Point2 get_window_position() const;
 	virtual void set_window_position(const Point2 &p_position);
+	virtual Size2 get_max_window_size() const;
+	virtual Size2 get_min_window_size() const;
+	virtual void set_min_window_size(const Size2 p_size);
+	virtual void set_max_window_size(const Size2 p_size);
 	virtual void set_window_size(const Size2 p_size);
 	virtual void set_window_fullscreen(bool p_enabled);
 	virtual bool is_window_fullscreen() const;
@@ -240,6 +280,7 @@ public:
 	virtual bool is_window_maximized() const;
 	virtual void set_window_always_on_top(bool p_enabled);
 	virtual bool is_window_always_on_top() const;
+	virtual bool is_window_focused() const;
 	virtual void request_attention();
 	virtual String get_joy_guid(int p_device) const;
 

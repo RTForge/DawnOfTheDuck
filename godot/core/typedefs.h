@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -108,7 +108,6 @@ T *_nullptr() {
 #include "core/int_types.h"
 
 #include "core/error_list.h"
-#include "core/error_macros.h"
 
 /** Generic ABS function, for math uses please use Math::abs */
 
@@ -137,7 +136,7 @@ T *_nullptr() {
 /** Generic swap template */
 #ifndef SWAP
 
-#define SWAP(m_x, m_y) __swap_tmpl(m_x, m_y)
+#define SWAP(m_x, m_y) __swap_tmpl((m_x), (m_y))
 template <class T>
 inline void __swap_tmpl(T &x, T &y) {
 
@@ -174,6 +173,9 @@ inline void __swap_tmpl(T &x, T &y) {
 /** Function to find the next power of 2 to an integer */
 
 static _FORCE_INLINE_ unsigned int next_power_of_2(unsigned int x) {
+
+	if (x == 0)
+		return 0;
 
 	--x;
 	x |= x >> 1;
@@ -326,6 +328,33 @@ struct _GlobalLock {
 #else
 #define _PRINTF_FORMAT_ATTRIBUTE_2_0
 #define _PRINTF_FORMAT_ATTRIBUTE_2_3
+#endif
+
+/** This is needed due to a strange OpenGL API that expects a pointer
+ *  type for an argument that is actually an offset.
+ */
+#define CAST_INT_TO_UCHAR_PTR(ptr) ((uint8_t *)(uintptr_t)(ptr))
+
+/** Hint for compilers that this fallthrough in a switch is intentional.
+ *  Can be replaced by [[fallthrough]] annotation if we move to C++17.
+ *  Including conditional support for it for people who set -std=c++17
+ *  themselves.
+ *  Requires a trailing semicolon when used.
+ */
+#if __cplusplus >= 201703L
+#define FALLTHROUGH [[fallthrough]]
+#elif defined(__GNUC__) && __GNUC__ >= 7
+#define FALLTHROUGH __attribute__((fallthrough))
+#elif defined(__llvm__) && __cplusplus >= 201103L && defined(__has_feature)
+#if __has_feature(cxx_attributes) && defined(__has_warning)
+#if __has_warning("-Wimplicit-fallthrough")
+#define FALLTHROUGH [[clang::fallthrough]]
+#endif
+#endif
+#endif
+
+#ifndef FALLTHROUGH
+#define FALLTHROUGH
 #endif
 
 #endif // TYPEDEFS_H

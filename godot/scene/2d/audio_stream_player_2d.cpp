@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -37,7 +37,7 @@
 void AudioStreamPlayer2D::_mix_audio() {
 
 	if (!stream_playback.is_valid() || !active ||
-			(stream_paused && !stream_fade_out)) {
+			(stream_paused && !stream_paused_fade_out)) {
 		return;
 	}
 
@@ -50,7 +50,7 @@ void AudioStreamPlayer2D::_mix_audio() {
 	AudioFrame *buffer = mix_buffer.ptrw();
 	int buffer_size = mix_buffer.size();
 
-	if (stream_fade_out) {
+	if (stream_paused_fade_out) {
 		// Short fadeout ramp
 		buffer_size = MIN(buffer_size, 128);
 	}
@@ -84,10 +84,10 @@ void AudioStreamPlayer2D::_mix_audio() {
 		}
 
 		//mix!
-		AudioFrame target_volume = stream_fade_out ? AudioFrame(0.f, 0.f) : current.vol;
-		AudioFrame vol_prev = stream_fade_in ? AudioFrame(0.f, 0.f) : prev_outputs[i].vol;
+		AudioFrame target_volume = stream_paused_fade_out ? AudioFrame(0.f, 0.f) : current.vol;
+		AudioFrame vol_prev = stream_paused_fade_in ? AudioFrame(0.f, 0.f) : prev_outputs[i].vol;
 		AudioFrame vol_inc = (target_volume - vol_prev) / float(buffer_size);
-		AudioFrame vol = stream_fade_in ? AudioFrame(0.f, 0.f) : current.vol;
+		AudioFrame vol = vol_prev;
 
 		int cc = AudioServer::get_singleton()->get_channel_count();
 
@@ -139,15 +139,9 @@ void AudioStreamPlayer2D::_mix_audio() {
 		active = false;
 	}
 
-	if (stream_stop) {
-		active = false;
-		set_physics_process_internal(false);
-		setplay = -1;
-	}
-
 	output_ready = false;
-	stream_fade_in = false;
-	stream_fade_out = false;
+	stream_paused_fade_in = false;
+	stream_paused_fade_out = false;
 }
 
 void AudioStreamPlayer2D::_notification(int p_what) {
@@ -329,7 +323,6 @@ void AudioStreamPlayer2D::play(float p_from_pos) {
 	}
 
 	if (stream_playback.is_valid()) {
-		stream_stop = false;
 		active = true;
 		setplay = p_from_pos;
 		output_ready = false;
@@ -347,8 +340,9 @@ void AudioStreamPlayer2D::seek(float p_seconds) {
 void AudioStreamPlayer2D::stop() {
 
 	if (stream_playback.is_valid()) {
-		stream_stop = true;
-		stream_fade_out = true;
+		active = false;
+		set_physics_process_internal(false);
+		setplay = -1;
 	}
 }
 
@@ -463,14 +457,18 @@ void AudioStreamPlayer2D::set_stream_paused(bool p_pause) {
 
 	if (p_pause != stream_paused) {
 		stream_paused = p_pause;
-		stream_fade_in = p_pause ? false : true;
-		stream_fade_out = p_pause ? true : false;
+		stream_paused_fade_in = !p_pause;
+		stream_paused_fade_out = p_pause;
 	}
 }
 
 bool AudioStreamPlayer2D::get_stream_paused() const {
 
 	return stream_paused;
+}
+
+Ref<AudioStreamPlayback> AudioStreamPlayer2D::get_stream_playback() {
+	return stream_playback;
 }
 
 void AudioStreamPlayer2D::_bind_methods() {
@@ -512,11 +510,13 @@ void AudioStreamPlayer2D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_stream_paused", "pause"), &AudioStreamPlayer2D::set_stream_paused);
 	ClassDB::bind_method(D_METHOD("get_stream_paused"), &AudioStreamPlayer2D::get_stream_paused);
 
+	ClassDB::bind_method(D_METHOD("get_stream_playback"), &AudioStreamPlayer2D::get_stream_playback);
+
 	ClassDB::bind_method(D_METHOD("_bus_layout_changed"), &AudioStreamPlayer2D::_bus_layout_changed);
 
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "stream", PROPERTY_HINT_RESOURCE_TYPE, "AudioStream"), "set_stream", "get_stream");
 	ADD_PROPERTY(PropertyInfo(Variant::REAL, "volume_db", PROPERTY_HINT_RANGE, "-80,24"), "set_volume_db", "get_volume_db");
-	ADD_PROPERTY(PropertyInfo(Variant::REAL, "pitch_scale", PROPERTY_HINT_RANGE, "0.01,32,0.01"), "set_pitch_scale", "get_pitch_scale");
+	ADD_PROPERTY(PropertyInfo(Variant::REAL, "pitch_scale", PROPERTY_HINT_RANGE, "0.01,4,0.01,or_greater"), "set_pitch_scale", "get_pitch_scale");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "playing", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_EDITOR), "_set_playing", "is_playing");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "autoplay"), "set_autoplay", "is_autoplay_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "stream_paused", PROPERTY_HINT_NONE, ""), "set_stream_paused", "get_stream_paused");
@@ -543,9 +543,8 @@ AudioStreamPlayer2D::AudioStreamPlayer2D() {
 	output_ready = false;
 	area_mask = 1;
 	stream_paused = false;
-	stream_fade_in = false;
-	stream_fade_out = false;
-	stream_stop = false;
+	stream_paused_fade_in = false;
+	stream_paused_fade_out = false;
 	AudioServer::get_singleton()->connect("bus_layout_changed", this, "_bus_layout_changed");
 }
 

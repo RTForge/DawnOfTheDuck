@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -33,6 +33,7 @@
 
 #include <string.h>
 
+#include "core/error_macros.h"
 #include "core/os/memory.h"
 #include "core/safe_refcount.h"
 
@@ -251,7 +252,9 @@ Error CowData<T>::resize(int p_size) {
 
 	ERR_FAIL_COND_V(p_size < 0, ERR_INVALID_PARAMETER);
 
-	if (p_size == size())
+	int current_size = size();
+
+	if (p_size == current_size)
 		return OK;
 
 	if (p_size == 0) {
@@ -264,24 +267,27 @@ Error CowData<T>::resize(int p_size) {
 	// possibly changing size, copy on write
 	_copy_on_write();
 
+	size_t current_alloc_size = _get_alloc_size(current_size);
 	size_t alloc_size;
 	ERR_FAIL_COND_V(!_get_alloc_size_checked(p_size, &alloc_size), ERR_OUT_OF_MEMORY);
 
-	if (p_size > size()) {
+	if (p_size > current_size) {
 
-		if (size() == 0) {
-			// alloc from scratch
-			uint32_t *ptr = (uint32_t *)Memory::alloc_static(alloc_size, true);
-			ERR_FAIL_COND_V(!ptr, ERR_OUT_OF_MEMORY);
-			*(ptr - 1) = 0; //size, currently none
-			*(ptr - 2) = 1; //refcount
+		if (alloc_size != current_alloc_size) {
+			if (current_size == 0) {
+				// alloc from scratch
+				uint32_t *ptr = (uint32_t *)Memory::alloc_static(alloc_size, true);
+				ERR_FAIL_COND_V(!ptr, ERR_OUT_OF_MEMORY);
+				*(ptr - 1) = 0; //size, currently none
+				*(ptr - 2) = 1; //refcount
 
-			_ptr = (T *)ptr;
+				_ptr = (T *)ptr;
 
-		} else {
-			void *_ptrnew = (T *)Memory::realloc_static(_ptr, alloc_size, true);
-			ERR_FAIL_COND_V(!_ptrnew, ERR_OUT_OF_MEMORY);
-			_ptr = (T *)(_ptrnew);
+			} else {
+				void *_ptrnew = (T *)Memory::realloc_static(_ptr, alloc_size, true);
+				ERR_FAIL_COND_V(!_ptrnew, ERR_OUT_OF_MEMORY);
+				_ptr = (T *)(_ptrnew);
+			}
 		}
 
 		// construct the newly created elements
@@ -296,7 +302,7 @@ Error CowData<T>::resize(int p_size) {
 
 		*_get_size() = p_size;
 
-	} else if (p_size < size()) {
+	} else if (p_size < current_size) {
 
 		if (!__has_trivial_destructor(T)) {
 			// deinitialize no longer needed elements
@@ -306,10 +312,12 @@ Error CowData<T>::resize(int p_size) {
 			}
 		}
 
-		void *_ptrnew = (T *)Memory::realloc_static(_ptr, alloc_size, true);
-		ERR_FAIL_COND_V(!_ptrnew, ERR_OUT_OF_MEMORY);
+		if (alloc_size != current_alloc_size) {
+			void *_ptrnew = (T *)Memory::realloc_static(_ptr, alloc_size, true);
+			ERR_FAIL_COND_V(!_ptrnew, ERR_OUT_OF_MEMORY);
 
-		_ptr = (T *)(_ptrnew);
+			_ptr = (T *)(_ptrnew);
+		}
 
 		*_get_size() = p_size;
 	}

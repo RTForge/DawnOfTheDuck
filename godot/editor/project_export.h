@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -90,7 +90,7 @@ private:
 	Tree *patches;
 	Button *patch_export;
 	int patch_index;
-	FileDialog *patch_dialog;
+	EditorFileDialog *patch_dialog;
 	ConfirmationDialog *patch_erase;
 
 	Button *export_button;
@@ -123,6 +123,7 @@ private:
 	void _delete_preset_confirm();
 	void _update_export_all();
 
+	void _force_update_current_preset_parameters();
 	void _update_current_preset();
 	void _update_presets();
 
@@ -139,8 +140,8 @@ private:
 	bool can_drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from) const;
 	void drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from);
 
-	FileDialog *export_pck_zip;
-	FileDialog *export_project;
+	EditorFileDialog *export_pck_zip;
+	EditorFileDialog *export_project;
 	CheckBox *export_debug;
 	CheckBox *export_pck_zip_debug;
 

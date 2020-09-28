@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -34,10 +34,6 @@
 #include "core/rid.h"
 #include "scene/2d/node_2d.h"
 #include "scene/resources/texture.h"
-
-/**
-	@author Juan Linietsky <reduzio@gmail.com>
-*/
 
 class CPUParticles2D : public Node2D {
 private:
@@ -68,20 +64,25 @@ public:
 
 	enum Flags {
 		FLAG_ALIGN_Y_TO_VELOCITY,
+		FLAG_ROTATE_Y, // Unused, but exposed for consistency with 3D.
+		FLAG_DISABLE_Z, // Unused, but exposed for consistency with 3D.
 		FLAG_MAX
 	};
 
 	enum EmissionShape {
 		EMISSION_SHAPE_POINT,
-		EMISSION_SHAPE_CIRCLE,
+		EMISSION_SHAPE_SPHERE,
 		EMISSION_SHAPE_RECTANGLE,
 		EMISSION_SHAPE_POINTS,
 		EMISSION_SHAPE_DIRECTED_POINTS,
+		EMISSION_SHAPE_MAX
 	};
 
 private:
 	bool emitting;
 
+	// warning - beware of adding non-trivial types
+	// to this structure as it is zeroed to initialize in set_amount()
 	struct Particle {
 		Transform2D transform;
 		Color color;
@@ -94,6 +95,7 @@ private:
 		float hue_rot_rand;
 		float anim_offset_rand;
 		float time;
+		float lifetime;
 		Color base_color;
 
 		uint32_t seed;
@@ -116,7 +118,7 @@ private:
 		const Particle *particles;
 
 		bool operator()(int p_a, int p_b) const {
-			return particles[p_a].time < particles[p_b].time;
+			return particles[p_a].time > particles[p_b].time;
 		}
 	};
 
@@ -137,10 +139,13 @@ private:
 	float pre_process_time;
 	float explosiveness_ratio;
 	float randomness_ratio;
+	float lifetime_randomness;
 	float speed_scale;
 	bool local_coords;
 	int fixed_fps;
 	bool fractional_delta;
+
+	Transform2D inv_emission_transform;
 
 	DrawOrder draw_order;
 
@@ -149,8 +154,8 @@ private:
 
 	////////
 
+	Vector2 direction;
 	float spread;
-	float flatness;
 
 	float parameters[PARAM_MAX];
 	float randomness[PARAM_MAX];
@@ -171,6 +176,7 @@ private:
 
 	Vector2 gravity;
 
+	void _update_internal();
 	void _particles_process(float p_delta);
 	void _update_particle_data_buffer();
 
@@ -181,6 +187,8 @@ private:
 	void _update_mesh_texture();
 
 	void _set_redraw(bool p_redraw);
+
+	void _texture_changed();
 
 protected:
 	static void _bind_methods();
@@ -195,6 +203,7 @@ public:
 	void set_pre_process_time(float p_time);
 	void set_explosiveness_ratio(float p_ratio);
 	void set_randomness_ratio(float p_ratio);
+	void set_lifetime_randomness(float p_random);
 	void set_visibility_aabb(const Rect2 &p_aabb);
 	void set_use_local_coordinates(bool p_enable);
 	void set_speed_scale(float p_scale);
@@ -206,6 +215,7 @@ public:
 	float get_pre_process_time() const;
 	float get_explosiveness_ratio() const;
 	float get_randomness_ratio() const;
+	float get_lifetime_randomness() const;
 	Rect2 get_visibility_aabb() const;
 	bool get_use_local_coordinates() const;
 	float get_speed_scale() const;
@@ -230,11 +240,11 @@ public:
 
 	///////////////////
 
+	void set_direction(Vector2 p_direction);
+	Vector2 get_direction() const;
+
 	void set_spread(float p_spread);
 	float get_spread() const;
-
-	void set_flatness(float p_flatness);
-	float get_flatness() const;
 
 	void set_param(Parameter p_param, float p_value);
 	float get_param(Parameter p_param) const;
@@ -248,7 +258,7 @@ public:
 	void set_color(const Color &p_color);
 	Color get_color() const;
 
-	void set_color_ramp(const Ref<Gradient> &p_texture);
+	void set_color_ramp(const Ref<Gradient> &p_ramp);
 	Ref<Gradient> get_color_ramp() const;
 
 	void set_particle_flag(Flags p_flag, bool p_enable);

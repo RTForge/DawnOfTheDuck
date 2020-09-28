@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -28,12 +28,14 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 
+#include "test_main.h"
+
 #include "core/list.h"
-#include "core/os/main_loop.h"
 
 #ifdef DEBUG_ENABLED
 
 #include "test_astar.h"
+#include "test_basis.h"
 #include "test_gdscript.h"
 #include "test_gui.h"
 #include "test_math.h"
@@ -50,6 +52,7 @@ const char **tests_get_names() {
 	static const char *test_names[] = {
 		"string",
 		"math",
+		"basis",
 		"physics",
 		"physics_2d",
 		"render",
@@ -78,6 +81,11 @@ MainLoop *test_main(String p_test, const List<String> &p_args) {
 	if (p_test == "math") {
 
 		return TestMath::test();
+	}
+
+	if (p_test == "basis") {
+
+		return TestBasis::test();
 	}
 
 	if (p_test == "physics") {

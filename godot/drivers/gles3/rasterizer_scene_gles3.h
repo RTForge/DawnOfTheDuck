@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -206,7 +206,10 @@ public:
 		bool used_screen_texture;
 
 		bool used_depth_prepass;
-		bool used_depth_prepass_and_resolved;
+
+		bool used_depth_texture;
+		bool prepared_depth_texture;
+		bool bound_depth_texture;
 
 		VS::ViewportDebugDraw debug_draw;
 	} state;
@@ -373,6 +376,8 @@ public:
 		float bg_energy;
 		float sky_ambient;
 
+		int camera_feed_id;
+
 		Color ambient_color;
 		float ambient_energy;
 		float ambient_sky_contribution;
@@ -458,6 +463,7 @@ public:
 				sky_custom_fov(0.0),
 				bg_energy(1.0),
 				sky_ambient(0),
+				camera_feed_id(0),
 				ambient_energy(1.0),
 				ambient_sky_contribution(0.0),
 				canvas_max_layer(0),
@@ -521,8 +527,8 @@ public:
 				fog_transmit_enabled(true),
 				fog_transmit_curve(1),
 				fog_height_enabled(false),
-				fog_height_min(0),
-				fog_height_max(100),
+				fog_height_min(10),
+				fog_height_max(0),
 				fog_height_curve(1) {
 		}
 	};
@@ -539,6 +545,7 @@ public:
 	virtual void environment_set_bg_energy(RID p_env, float p_energy);
 	virtual void environment_set_canvas_max_layer(RID p_env, int p_max_layer);
 	virtual void environment_set_ambient_light(RID p_env, const Color &p_color, float p_energy = 1.0, float p_sky_contribution = 0.0);
+	virtual void environment_set_camera_feed_id(RID p_env, int p_camera_feed_id);
 
 	virtual void environment_set_dof_blur_near(RID p_env, bool p_enable, float p_distance, float p_transition, float p_amount, VS::EnvironmentDOFBlurQuality p_quality);
 	virtual void environment_set_dof_blur_far(RID p_env, bool p_enable, float p_distance, float p_transition, float p_amount, VS::EnvironmentDOFBlurQuality p_quality);
@@ -662,8 +669,8 @@ public:
 			SORT_FLAG_SKELETON = 1,
 			SORT_FLAG_INSTANCING = 2,
 			MAX_DIRECTIONAL_LIGHTS = 16,
-			MAX_LIGHTS = 4096,
-			MAX_REFLECTIONS = 1024,
+			DEFAULT_MAX_LIGHTS = 4096,
+			DEFAULT_MAX_REFLECTIONS = 1024,
 
 			SORT_KEY_PRIORITY_SHIFT = 56,
 			SORT_KEY_PRIORITY_MASK = 0xFF,
@@ -694,6 +701,8 @@ public:
 		};
 
 		int max_elements;
+		int max_lights;
+		int max_reflections;
 
 		struct Element {
 
@@ -806,6 +815,8 @@ public:
 		RenderList() {
 
 			max_elements = DEFAULT_MAX_ELEMENTS;
+			max_lights = DEFAULT_MAX_LIGHTS;
+			max_reflections = DEFAULT_MAX_REFLECTIONS;
 		}
 
 		~RenderList() {
@@ -821,12 +832,12 @@ public:
 
 	_FORCE_INLINE_ void _set_cull(bool p_front, bool p_disabled, bool p_reverse_cull);
 
-	_FORCE_INLINE_ bool _setup_material(RasterizerStorageGLES3::Material *p_material, bool p_alpha_pass);
+	_FORCE_INLINE_ bool _setup_material(RasterizerStorageGLES3::Material *p_material, bool p_depth_pass, bool p_alpha_pass);
 	_FORCE_INLINE_ void _setup_geometry(RenderList::Element *e, const Transform &p_view_transform);
 	_FORCE_INLINE_ void _render_geometry(RenderList::Element *e);
 	_FORCE_INLINE_ void _setup_light(RenderList::Element *e, const Transform &p_view_transform);
 
-	void _render_list(RenderList::Element **p_elements, int p_element_count, const Transform &p_view_transform, const CameraMatrix &p_projection, GLuint p_base_env, bool p_reverse_cull, bool p_alpha_pass, bool p_shadow, bool p_directional_add, bool p_directional_shadows);
+	void _render_list(RenderList::Element **p_elements, int p_element_count, const Transform &p_view_transform, const CameraMatrix &p_projection, RasterizerStorageGLES3::Sky *p_sky, bool p_reverse_cull, bool p_alpha_pass, bool p_shadow, bool p_directional_add, bool p_directional_shadows);
 
 	_FORCE_INLINE_ void _add_geometry(RasterizerStorageGLES3::Geometry *p_geometry, InstanceBase *p_instance, RasterizerStorageGLES3::GeometryOwner *p_owner, int p_material, bool p_depth_pass, bool p_shadow_pass);
 
@@ -847,6 +858,9 @@ public:
 	void _blur_effect_buffer();
 	void _render_mrts(Environment *env, const CameraMatrix &p_cam_projection);
 	void _post_process(Environment *env, const CameraMatrix &p_cam_projection);
+
+	void _prepare_depth_texture();
+	void _bind_depth_texture();
 
 	virtual void render_scene(const Transform &p_cam_transform, const CameraMatrix &p_cam_projection, bool p_cam_ortogonal, InstanceBase **p_cull_result, int p_cull_count, RID *p_light_cull_result, int p_light_cull_count, RID *p_reflection_probe_cull_result, int p_reflection_probe_cull_count, RID p_environment, RID p_shadow_atlas, RID p_reflection_atlas, RID p_reflection_probe, int p_reflection_probe_pass);
 	virtual void render_shadow(RID p_light, RID p_shadow_atlas, int p_pass, InstanceBase **p_cull_result, int p_cull_count);

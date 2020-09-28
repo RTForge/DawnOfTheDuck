@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -206,6 +206,20 @@ String DirAccessWindows::get_current_dir() {
 	return current_dir;
 }
 
+String DirAccessWindows::get_current_dir_without_drive() {
+
+	String dir = get_current_dir();
+
+	if (_get_root_string() == "") {
+		int p = current_dir.find(":");
+		if (p != -1) {
+			dir = dir.right(p + 1);
+		}
+	}
+
+	return dir;
+}
+
 bool DirAccessWindows::file_exists(String p_file) {
 
 	GLOBAL_LOCK_FUNCTION
@@ -293,10 +307,6 @@ Error DirAccessWindows::remove(String p_path) {
 		p_path = get_current_dir().plus_file(p_path);
 
 	p_path = fix_path(p_path);
-
-	printf("erasing %s\n", p_path.utf8().get_data());
-	//WIN32_FILE_ATTRIBUTE_DATA    fileInfo;
-	//DWORD fileAttr = GetFileAttributesExW(p_path.c_str(), GetFileExInfoStandard, &fileInfo);
 
 	DWORD fileAttr;
 
@@ -394,7 +404,7 @@ DirAccessWindows::DirAccessWindows() {
 
 		if (mask & (1 << i)) { //DRIVE EXISTS
 
-			drives[drive_count] = 'a' + i;
+			drives[drive_count] = 'A' + i;
 			drive_count++;
 		}
 	}

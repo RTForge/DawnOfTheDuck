@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,6 +30,8 @@
 
 #include "image_loader_tga.h"
 
+#include "core/error_macros.h"
+#include "core/io/file_access_memory.h"
 #include "core/os/os.h"
 #include "core/print_string.h"
 
@@ -148,9 +150,11 @@ Error ImageLoaderTGA::convert_to_image(Ref<Image> p_image, const uint8_t *p_buff
 					uint8_t a = 0xff;
 
 					if (p_header.color_map_depth == 24) {
-						r = (p_palette[(index * 3) + 0]);
+						// Due to low-high byte order, the color table must be
+						// read in the same order as image data (little endian)
+						r = (p_palette[(index * 3) + 2]);
 						g = (p_palette[(index * 3) + 1]);
-						b = (p_palette[(index * 3) + 2]);
+						b = (p_palette[(index * 3) + 0]);
 					} else {
 						return ERR_INVALID_DATA;
 					}
@@ -197,7 +201,7 @@ Error ImageLoaderTGA::convert_to_image(Ref<Image> p_image, const uint8_t *p_buff
 		}
 	}
 
-	image_data_w = PoolVector<uint8_t>::Write();
+	image_data_w.release();
 
 	p_image->create(width, height, 0, Image::FORMAT_RGBA8, image_data);
 
@@ -312,5 +316,17 @@ void ImageLoaderTGA::get_recognized_extensions(List<String> *p_extensions) const
 	p_extensions->push_back("tga");
 }
 
+static Ref<Image> _tga_mem_loader_func(const uint8_t *p_png, int p_size) {
+	FileAccessMemory memfile;
+	Error open_memfile_error = memfile.open_custom(p_png, p_size);
+	ERR_FAIL_COND_V_MSG(open_memfile_error, Ref<Image>(), "Could not create memfile for TGA image buffer.");
+	Ref<Image> img;
+	img.instance();
+	Error load_error = ImageLoaderTGA().load_image(img, &memfile, false, 1.0f);
+	ERR_FAIL_COND_V_MSG(load_error, Ref<Image>(), "Failed to load TGA image.");
+	return img;
+}
+
 ImageLoaderTGA::ImageLoaderTGA() {
+	Image::_tga_mem_loader_func = _tga_mem_loader_func;
 }

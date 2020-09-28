@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,8 +31,10 @@
 #include "gd_mono_class.h"
 
 #include <mono/metadata/attrdefs.h>
+#include <mono/metadata/debug-helpers.h>
 
 #include "gd_mono_assembly.h"
+#include "gd_mono_cache.h"
 #include "gd_mono_marshal.h"
 
 String GDMonoClass::get_full_name(MonoClass *p_mono_class) {
@@ -41,7 +43,7 @@ String GDMonoClass::get_full_name(MonoClass *p_mono_class) {
 
 	MonoException *exc = NULL;
 	MonoString *str = GDMonoUtils::object_to_string((MonoObject *)type_obj, &exc);
-	UNLIKELY_UNHANDLED_EXCEPTION(exc);
+	UNHANDLED_EXCEPTION(exc);
 
 	return GDMonoMarshal::mono_string_to_godot(str);
 }
@@ -54,8 +56,13 @@ String GDMonoClass::get_full_name() const {
 	return get_full_name(mono_class);
 }
 
-MonoType *GDMonoClass::get_mono_type() {
-	// Care, you cannot compare MonoType pointers
+String GDMonoClass::get_type_desc() const {
+	return GDMonoUtils::get_type_desc(get_mono_type());
+}
+
+MonoType *GDMonoClass::get_mono_type() const {
+	// Careful, you cannot compare two MonoType*.
+	// There is mono_metadata_type_equal, how is this different from comparing two MonoClass*?
 	return get_mono_type(mono_class);
 }
 
@@ -72,17 +79,28 @@ bool GDMonoClass::is_assignable_from(GDMonoClass *p_from) const {
 	return mono_class_is_assignable_from(mono_class, p_from->mono_class);
 }
 
-GDMonoClass *GDMonoClass::get_parent_class() {
+StringName GDMonoClass::get_namespace() const {
+	GDMonoClass *nesting_class = get_nesting_class();
+	if (!nesting_class)
+		return namespace_name;
+	return nesting_class->get_namespace();
+}
 
-	if (assembly) {
-		MonoClass *parent_mono_class = mono_class_get_parent(mono_class);
+String GDMonoClass::get_name_for_lookup() const {
+	GDMonoClass *nesting_class = get_nesting_class();
+	if (!nesting_class)
+		return class_name;
+	return nesting_class->get_name_for_lookup() + "/" + class_name;
+}
 
-		if (parent_mono_class) {
-			return GDMono::get_singleton()->get_class(parent_mono_class);
-		}
-	}
+GDMonoClass *GDMonoClass::get_parent_class() const {
+	MonoClass *parent_mono_class = mono_class_get_parent(mono_class);
+	return parent_mono_class ? GDMono::get_singleton()->get_class(parent_mono_class) : NULL;
+}
 
-	return NULL;
+GDMonoClass *GDMonoClass::get_nesting_class() const {
+	MonoClass *nesting_type = mono_class_get_nesting_type(mono_class);
+	return nesting_type ? GDMono::get_singleton()->get_class(nesting_type) : NULL;
 }
 
 #ifdef TOOLS_ENABLED
@@ -167,8 +185,8 @@ void GDMonoClass::fetch_methods_with_godot_api_checks(GDMonoClass *p_native_base
 
 #ifdef DEBUG_ENABLED
 			String fullname = method->get_ret_type_full_name() + " " + name + "(" + method->get_signature_desc(true) + ")";
-			WARN_PRINTS("Method `" + fullname + "` is hidden by Godot API method. Should be `" +
-						method->get_full_name_no_class() + "`. In class `" + namespace_name + "." + class_name + "`.");
+			WARN_PRINTS("Method '" + fullname + "' is hidden by Godot API method. Should be '" +
+						method->get_full_name_no_class() + "'. In class '" + namespace_name + "." + class_name + "'.");
 #endif
 			continue;
 		}
@@ -186,8 +204,8 @@ void GDMonoClass::fetch_methods_with_godot_api_checks(GDMonoClass *p_native_base
 				if (m && m->get_name() != name) {
 					// found
 					String fullname = m->get_ret_type_full_name() + " " + name + "(" + m->get_signature_desc(true) + ")";
-					WARN_PRINTS("Method `" + fullname + "` should be `" + m->get_full_name_no_class() +
-								"`. In class `" + namespace_name + "." + class_name + "`.");
+					WARN_PRINTS("Method '" + fullname + "' should be '" + m->get_full_name_no_class() +
+								"'. In class '" + namespace_name + "." + class_name + "'.");
 					break;
 				}
 
@@ -260,6 +278,17 @@ bool GDMonoClass::has_fetched_method_unknown_params(const StringName &p_name) {
 	return get_fetched_method_unknown_params(p_name) != NULL;
 }
 
+bool GDMonoClass::implements_interface(GDMonoClass *p_interface) {
+
+	return mono_class_implements_interface(mono_class, p_interface->get_mono_ptr());
+}
+
+bool GDMonoClass::has_public_parameterless_ctor() {
+
+	GDMonoMethod *ctor = get_method(".ctor", 0);
+	return ctor && ctor->get_visibility() == IMonoClassMember::PUBLIC;
+}
+
 GDMonoMethod *GDMonoClass::get_method(const StringName &p_name, int p_params_count) {
 
 	MethodKey key = MethodKey(p_name, p_params_count);
@@ -324,15 +353,12 @@ GDMonoMethod *GDMonoClass::get_method_with_desc(const String &p_description, boo
 	MonoMethod *method = mono_method_desc_search_in_class(desc, mono_class);
 	mono_method_desc_free(desc);
 
+	if (!method)
+		return NULL;
+
 	ERR_FAIL_COND_V(mono_method_get_class(method) != mono_class, NULL);
 
 	return get_method(method);
-}
-
-void *GDMonoClass::get_method_thunk(const StringName &p_name, int p_params_count) {
-
-	GDMonoMethod *method = get_method(p_name, p_params_count);
-	return method ? method->get_thunk() : NULL;
 }
 
 GDMonoField *GDMonoClass::get_field(const StringName &p_name) {

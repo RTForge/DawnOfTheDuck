@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,6 +31,7 @@
 #ifndef SELF_LIST_H
 #define SELF_LIST_H
 
+#include "core/error_macros.h"
 #include "core/typedefs.h"
 
 template <class T>
@@ -119,6 +120,9 @@ private:
 
 public:
 	_FORCE_INLINE_ bool in_list() const { return _root; }
+	_FORCE_INLINE_ void remove_from_list() {
+		if (_root) _root->remove(this);
+	}
 	_FORCE_INLINE_ SelfList<T> *next() { return _next; }
 	_FORCE_INLINE_ SelfList<T> *prev() { return _prev; }
 	_FORCE_INLINE_ const SelfList<T> *next() const { return _next; }

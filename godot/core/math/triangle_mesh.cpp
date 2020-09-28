@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -182,7 +182,7 @@ void TriangleMesh::create(const PoolVector<Vector3> &p_faces) {
 	int max_alloc = fc;
 	_create_bvh(bw.ptr(), bwp.ptr(), 0, fc, 1, max_depth, max_alloc);
 
-	bw = PoolVector<BVH>::Write(); //clearup
+	bw.release(); //clearup
 	bvh.resize(max_alloc); //resize back
 
 	valid = true;
@@ -511,7 +511,7 @@ bool TriangleMesh::intersect_ray(const Vector3 &p_begin, const Vector3 &p_dir, V
 	return inters;
 }
 
-bool TriangleMesh::intersect_convex_shape(const Plane *p_planes, int p_plane_count) const {
+bool TriangleMesh::intersect_convex_shape(const Plane *p_planes, int p_plane_count, const Vector3 *p_points, int p_point_count) const {
 	uint32_t *stack = (uint32_t *)alloca(sizeof(int) * max_depth);
 
 	//p_fully_inside = true;
@@ -548,7 +548,7 @@ bool TriangleMesh::intersect_convex_shape(const Plane *p_planes, int p_plane_cou
 		switch (stack[level] >> VISITED_BIT_SHIFT) {
 			case TEST_AABB_BIT: {
 
-				bool valid = b.aabb.intersects_convex_shape(p_planes, p_plane_count);
+				bool valid = b.aabb.intersects_convex_shape(p_planes, p_plane_count, p_points, p_point_count);
 				if (!valid) {
 
 					stack[level] = (VISIT_DONE_BIT << VISITED_BIT_SHIFT) | node;
@@ -629,7 +629,7 @@ bool TriangleMesh::intersect_convex_shape(const Plane *p_planes, int p_plane_cou
 	return false;
 }
 
-bool TriangleMesh::inside_convex_shape(const Plane *p_planes, int p_plane_count, Vector3 p_scale) const {
+bool TriangleMesh::inside_convex_shape(const Plane *p_planes, int p_plane_count, const Vector3 *p_points, int p_point_count, Vector3 p_scale) const {
 	uint32_t *stack = (uint32_t *)alloca(sizeof(int) * max_depth);
 
 	enum {
@@ -666,7 +666,7 @@ bool TriangleMesh::inside_convex_shape(const Plane *p_planes, int p_plane_count,
 		switch (stack[level] >> VISITED_BIT_SHIFT) {
 			case TEST_AABB_BIT: {
 
-				bool intersects = scale.xform(b.aabb).intersects_convex_shape(p_planes, p_plane_count);
+				bool intersects = scale.xform(b.aabb).intersects_convex_shape(p_planes, p_plane_count, p_points, p_point_count);
 				if (!intersects) return false;
 
 				bool inside = scale.xform(b.aabb).inside_convex_shape(p_planes, p_plane_count);
@@ -751,7 +751,7 @@ PoolVector<Face3> TriangleMesh::get_faces() const {
 		}
 	}
 
-	w = PoolVector<Face3>::Write();
+	w.release();
 	return faces;
 }
 

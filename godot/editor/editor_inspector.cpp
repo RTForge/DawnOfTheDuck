@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,6 +31,7 @@
 #include "editor_inspector.h"
 #include "array_property_edit.h"
 #include "dictionary_property_edit.h"
+#include "editor_feature_profile.h"
 #include "editor_node.h"
 #include "editor_scale.h"
 #include "multi_node_edit.h"
@@ -66,7 +67,7 @@ Size2 EditorProperty::get_minimum_size() const {
 
 	if (checkable) {
 		Ref<Texture> check = get_icon("checked", "CheckBox");
-		ms.width += check->get_width() + get_constant("hseparator", "Tree");
+		ms.width += check->get_width() + get_constant("hseparation", "CheckBox") + get_constant("hseparator", "Tree");
 	}
 
 	if (bottom_editor != NULL && bottom_editor->is_visible()) {
@@ -211,12 +212,14 @@ void EditorProperty::_notification(int p_what) {
 		}
 
 		int ofs = 0;
+		int text_limit = text_size;
+
 		if (checkable) {
 			Ref<Texture> checkbox;
 			if (checked)
-				checkbox = get_icon("checked", "CheckBox");
+				checkbox = get_icon("GuiChecked", "EditorIcons");
 			else
-				checkbox = get_icon("unchecked", "CheckBox");
+				checkbox = get_icon("GuiUnchecked", "EditorIcons");
 
 			Color color2(1, 1, 1);
 			if (check_hover) {
@@ -226,13 +229,11 @@ void EditorProperty::_notification(int p_what) {
 			}
 			check_rect = Rect2(ofs, ((size.height - checkbox->get_height()) / 2), checkbox->get_width(), checkbox->get_height());
 			draw_texture(checkbox, check_rect.position, color2);
-			ofs += get_constant("hseparator", "Tree");
-			ofs += checkbox->get_width();
+			ofs += get_constant("hseparator", "Tree") + checkbox->get_width() + get_constant("hseparation", "CheckBox");
+			text_limit -= ofs;
 		} else {
 			check_rect = Rect2();
 		}
-
-		int text_limit = text_size;
 
 		if (can_revert) {
 			Ref<Texture> reload_icon = get_icon("ReloadSmall", "EditorIcons");
@@ -378,7 +379,7 @@ bool EditorPropertyRevert::get_instanced_node_original_property(Node *p_node, co
 		node = node->get_owner();
 	}
 
-	if (!found) {
+	if (!found && node) {
 		//if not found, try default class value
 		Variant attempt = ClassDB::class_get_default_property_value(node->get_class_name(), p_prop);
 		if (attempt.get_type() != Variant::NIL) {
@@ -433,7 +434,7 @@ bool EditorPropertyRevert::is_node_property_different(Node *p_node, const Varian
 		float a = p_current;
 		float b = p_orig;
 
-		return Math::abs(a - b) > CMP_EPSILON; //this must be done because, as some scenes save as text, there might be a tiny difference in floats due to numerical error
+		return !Math::is_equal_approx(a, b); //this must be done because, as some scenes save as text, there might be a tiny difference in floats due to numerical error
 	}
 
 	return bool(Variant::evaluate(Variant::OP_NOT_EQUAL, p_current, p_orig));
@@ -463,17 +464,21 @@ bool EditorPropertyRevert::can_property_revert(Object *p_object, const StringNam
 		}
 	}
 
-	if (p_object->call("property_can_revert", p_property).operator bool()) {
-
-		has_revert = true;
-	}
-
-	if (!has_revert && !p_object->get_script().is_null()) {
-		Ref<Script> scr = p_object->get_script();
-		Variant orig_value;
-		if (scr->get_property_default_value(p_property, orig_value)) {
-			if (orig_value != p_object->get(p_property)) {
-				has_revert = true;
+	// If the object implements property_can_revert, rely on that completely
+	// (i.e. don't then try to revert to default value - the property_get_revert implementation
+	// can do that if so desired)
+	if (p_object->has_method("property_can_revert")) {
+		has_revert = p_object->call("property_can_revert", p_property).operator bool();
+	} else {
+		if (!has_revert && !p_object->get_script().is_null()) {
+			Ref<Script> scr = p_object->get_script();
+			if (scr.is_valid()) {
+				Variant orig_value;
+				if (scr->get_property_default_value(p_property, orig_value)) {
+					if (orig_value != p_object->get(p_property)) {
+						has_revert = true;
+					}
+				}
 			}
 		}
 	}
@@ -502,7 +507,7 @@ bool EditorProperty::use_keying_next() const {
 		PropertyInfo &p = I->get();
 
 		if (p.name == property) {
-			return p.hint == PROPERTY_HINT_SPRITE_FRAME;
+			return (p.usage & PROPERTY_USAGE_KEYING_INCREMENTS);
 		}
 	}
 
@@ -642,7 +647,19 @@ void EditorProperty::_gui_input(const Ref<InputEvent> &p_event) {
 			emit_signal("property_keyed", property, use_keying_next());
 
 			if (use_keying_next()) {
-				call_deferred("emit_changed", property, object->get(property).operator int64_t() + 1, "", false);
+				if (property == "frame_coords" && (object->is_class("Sprite") || object->is_class("Sprite3D"))) {
+					Vector2 new_coords = object->get(property);
+					new_coords.x++;
+					if (new_coords.x >= object->get("hframes").operator int64_t()) {
+						new_coords.x = 0;
+						new_coords.y++;
+					}
+
+					call_deferred("emit_changed", property, new_coords, "", false);
+				} else {
+					call_deferred("emit_changed", property, object->get(property).operator int64_t() + 1, "", false);
+				}
+
 				call_deferred("update_property");
 			}
 		}
@@ -668,11 +685,13 @@ void EditorProperty::_gui_input(const Ref<InputEvent> &p_event) {
 
 			if (!object->get_script().is_null()) {
 				Ref<Script> scr = object->get_script();
-				Variant orig_value;
-				if (scr->get_property_default_value(property, orig_value)) {
-					emit_changed(property, orig_value);
-					update_property();
-					return;
+				if (scr.is_valid()) {
+					Variant orig_value;
+					if (scr->get_property_default_value(property, orig_value)) {
+						emit_changed(property, orig_value);
+						update_property();
+						return;
+					}
 				}
 			}
 
@@ -761,10 +780,20 @@ Control *EditorProperty::make_custom_tooltip(const String &p_text) const {
 	help_bit->add_style_override("panel", get_stylebox("panel", "TooltipPanel"));
 	help_bit->get_rich_text()->set_fixed_size_to_width(360 * EDSCALE);
 
-	String text = TTR("Property:") + " [u][b]" + p_text.get_slice("::", 0) + "[/b][/u]\n";
-	text += p_text.get_slice("::", 1).strip_edges();
-	help_bit->set_text(text);
-	help_bit->call_deferred("set_text", text); //hack so it uses proper theme once inside scene
+	Vector<String> slices = p_text.split("::", false);
+	if (!slices.empty()) {
+		String property_name = slices[0].strip_edges();
+		String text = TTR("Property:") + " [u][b]" + property_name + "[/b][/u]";
+
+		if (slices.size() > 1) {
+			String property_doc = slices[1].strip_edges();
+			if (property_name != property_doc) {
+				text += "\n" + property_doc;
+			}
+		}
+		help_bit->call_deferred("set_text", text); //hack so it uses proper theme once inside scene
+	}
+
 	return help_bit;
 }
 
@@ -799,6 +828,9 @@ void EditorProperty::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_focusable_focused"), &EditorProperty::_focusable_focused);
 
 	ClassDB::bind_method(D_METHOD("get_tooltip_text"), &EditorProperty::get_tooltip_text);
+
+	ClassDB::bind_method(D_METHOD("add_focusable", "control"), &EditorProperty::add_focusable);
+	ClassDB::bind_method(D_METHOD("set_bottom_editor", "editor"), &EditorProperty::set_bottom_editor);
 
 	ClassDB::bind_method(D_METHOD("emit_changed", "property", "value", "field", "changing"), &EditorProperty::emit_changed, DEFVAL(StringName()), DEFVAL(false));
 
@@ -985,10 +1017,20 @@ Control *EditorInspectorCategory::make_custom_tooltip(const String &p_text) cons
 	help_bit->add_style_override("panel", get_stylebox("panel", "TooltipPanel"));
 	help_bit->get_rich_text()->set_fixed_size_to_width(360 * EDSCALE);
 
-	String text = "[u][b]" + p_text.get_slice("::", 0) + "[/b][/u]\n";
-	text += p_text.get_slice("::", 1).strip_edges();
-	help_bit->set_text(text);
-	help_bit->call_deferred("set_text", text); //hack so it uses proper theme once inside scene
+	Vector<String> slices = p_text.split("::", false);
+	if (!slices.empty()) {
+		String property_name = slices[0].strip_edges();
+		String text = "[u][b]" + property_name + "[/b][/u]";
+
+		if (slices.size() > 1) {
+			String property_doc = slices[1].strip_edges();
+			if (property_name != property_doc) {
+				text += "\n" + property_doc;
+			}
+		}
+		help_bit->call_deferred("set_text", text); //hack so it uses proper theme once inside scene
+	}
+
 	return help_bit;
 }
 
@@ -1037,15 +1079,13 @@ void EditorInspectorSection::_notification(int p_what) {
 		Ref<Font> font = get_font("font", "Tree");
 		Ref<Texture> arrow;
 
-#ifdef TOOLS_ENABLED
 		if (foldable) {
 			if (object->editor_is_section_unfolded(section)) {
-				arrow = get_icon("arrow_up", "Tree");
-			} else {
 				arrow = get_icon("arrow", "Tree");
+			} else {
+				arrow = get_icon("arrow_collapsed", "Tree");
 			}
 		}
-#endif
 
 		Size2 size = get_size();
 		Point2 offset;
@@ -1080,15 +1120,13 @@ void EditorInspectorSection::_notification(int p_what) {
 
 		Ref<Texture> arrow;
 
-#ifdef TOOLS_ENABLED
 		if (foldable) {
 			if (object->editor_is_section_unfolded(section)) {
-				arrow = get_icon("arrow_up", "Tree");
-			} else {
 				arrow = get_icon("arrow", "Tree");
+			} else {
+				arrow = get_icon("arrow_collapsed", "Tree");
 			}
 		}
-#endif
 
 		Ref<Font> font = get_font("font", "Tree");
 
@@ -1100,13 +1138,12 @@ void EditorInspectorSection::_notification(int p_what) {
 
 		draw_rect(Rect2(Vector2(), Vector2(get_size().width, h)), bg_color);
 
-		int hs = get_constant("hseparation", "Tree");
-
+		const int arrow_margin = 3;
 		Color color = get_color("font_color", "Tree");
-		draw_string(font, Point2(hs, font->get_ascent() + (h - font->get_height()) / 2).floor(), label, color, get_size().width);
+		draw_string(font, Point2(Math::round((16 + arrow_margin) * EDSCALE), font->get_ascent() + (h - font->get_height()) / 2).floor(), label, color, get_size().width);
 
 		if (arrow.is_valid()) {
-			draw_texture(arrow, Point2(get_size().width - arrow->get_width(), (h - arrow->get_height()) / 2).floor());
+			draw_texture(arrow, Point2(Math::round(arrow_margin * EDSCALE), (h - arrow->get_height()) / 2).floor());
 		}
 	}
 }
@@ -1148,7 +1185,6 @@ void EditorInspectorSection::setup(const String &p_section, const String &p_labe
 		vbox_added = true;
 	}
 
-#ifdef TOOLS_ENABLED
 	if (foldable) {
 		_test_unfold();
 		if (object->editor_is_section_unfolded(section)) {
@@ -1157,7 +1193,6 @@ void EditorInspectorSection::setup(const String &p_section, const String &p_labe
 			vbox->hide();
 		}
 	}
-#endif
 }
 
 void EditorInspectorSection::_gui_input(const Ref<InputEvent> &p_event) {
@@ -1165,7 +1200,6 @@ void EditorInspectorSection::_gui_input(const Ref<InputEvent> &p_event) {
 	if (!foldable)
 		return;
 
-#ifdef TOOLS_ENABLED
 	Ref<InputEventMouseButton> mb = p_event;
 	if (mb.is_valid() && mb->is_pressed() && mb->get_button_index() == BUTTON_LEFT) {
 
@@ -1184,7 +1218,6 @@ void EditorInspectorSection::_gui_input(const Ref<InputEvent> &p_event) {
 			vbox->hide();
 		}
 	}
-#endif
 }
 
 VBoxContainer *EditorInspectorSection::get_vbox() {
@@ -1198,11 +1231,9 @@ void EditorInspectorSection::unfold() {
 
 	_test_unfold();
 
-#ifdef TOOLS_ENABLED
 	object->editor_set_section_unfold(section, true);
 	vbox->show();
 	update();
-#endif
 }
 
 void EditorInspectorSection::fold() {
@@ -1212,11 +1243,9 @@ void EditorInspectorSection::fold() {
 	if (!vbox_added)
 		return; //kinda pointless
 
-#ifdef TOOLS_ENABLED
 	object->editor_set_section_unfold(section, false);
 	vbox->hide();
 	update();
-#endif
 }
 
 void EditorInspectorSection::_bind_methods() {
@@ -1295,6 +1324,7 @@ void EditorInspector::remove_inspector_plugin(const Ref<EditorInspectorPlugin> &
 		}
 	}
 
+	ERR_FAIL_COND_MSG(idx == -1, "Trying to remove nonexistent inspector plugin.");
 	for (int i = idx; i < inspector_plugin_count - 1; i++) {
 		inspector_plugins[i] = inspector_plugins[i + 1];
 	}
@@ -1368,6 +1398,30 @@ void EditorInspector::_parse_added_editors(VBoxContainer *current_vbox, Ref<Edit
 		}
 	}
 	ped->added_editors.clear();
+}
+
+bool EditorInspector::_is_property_disabled_by_feature_profile(const StringName &p_property) {
+
+	Ref<EditorFeatureProfile> profile = EditorFeatureProfileManager::get_singleton()->get_current_profile();
+	if (profile.is_null()) {
+		return false;
+	}
+
+	StringName class_name = object->get_class();
+
+	while (class_name != StringName()) {
+
+		if (profile->is_class_property_disabled(class_name, p_property)) {
+			return true;
+		}
+		if (profile->is_class_disabled(class_name)) {
+			//won't see properties of a disabled class
+			return true;
+		}
+		class_name = ClassDB::get_parent_class(class_name);
+	}
+
+	return false;
 }
 
 void EditorInspector::update_tree() {
@@ -1499,7 +1553,7 @@ void EditorInspector::update_tree() {
 					if (E) {
 						descr = E->get().brief_description;
 					}
-					class_descr_cache[type2] = descr.word_wrap(80);
+					class_descr_cache[type2] = descr;
 				}
 
 				category->set_tooltip(p.name + "::" + (class_descr_cache[type2] == "" ? "" : class_descr_cache[type2]));
@@ -1513,7 +1567,7 @@ void EditorInspector::update_tree() {
 
 			continue;
 
-		} else if (!(p.usage & PROPERTY_USAGE_EDITOR))
+		} else if (!(p.usage & PROPERTY_USAGE_EDITOR) || _is_property_disabled_by_feature_profile(p.name))
 			continue;
 
 		if (p.usage & PROPERTY_USAGE_HIGH_END_GFX && VS::get_singleton()->is_low_end())
@@ -1547,11 +1601,11 @@ void EditorInspector::update_tree() {
 			if (dot != -1) {
 				String ov = name.right(dot);
 				name = name.substr(0, dot);
-				name = name.camelcase_to_underscore().capitalize();
+				name = name.capitalize();
 				name += ov;
 
 			} else {
-				name = name.camelcase_to_underscore().capitalize();
+				name = name.capitalize();
 			}
 		}
 
@@ -1564,7 +1618,7 @@ void EditorInspector::update_tree() {
 			if (capitalize_paths)
 				cat = cat.capitalize();
 
-			if (!filter.is_subsequence_ofi(cat) && !filter.is_subsequence_ofi(name))
+			if (!filter.is_subsequence_ofi(cat) && !filter.is_subsequence_ofi(name) && property_prefix.to_lower().find(filter.to_lower()) == -1)
 				continue;
 		}
 
@@ -1651,10 +1705,22 @@ void EditorInspector::update_tree() {
 				while (F && descr == String()) {
 					for (int i = 0; i < F->get().properties.size(); i++) {
 						if (F->get().properties[i].name == propname.operator String()) {
-							descr = F->get().properties[i].description.strip_edges().word_wrap(80);
+							descr = F->get().properties[i].description.strip_edges();
 							break;
 						}
 					}
+
+					Vector<String> slices = propname.operator String().split("/");
+					if (slices.size() == 2 && slices[0].begins_with("custom_")) {
+						// Likely a theme property.
+						for (int i = 0; i < F->get().theme_properties.size(); i++) {
+							if (F->get().theme_properties[i].name == slices[1]) {
+								descr = F->get().theme_properties[i].description.strip_edges();
+								break;
+							}
+						}
+					}
+
 					if (!F->get().inherits.empty()) {
 						F = dd->class_list.find(F->get().inherits);
 					} else {
@@ -2132,6 +2198,10 @@ void EditorInspector::_node_removed(Node *p_node) {
 
 void EditorInspector::_notification(int p_what) {
 
+	if (p_what == NOTIFICATION_READY) {
+		EditorFeatureProfileManager::get_singleton()->connect("current_feature_profile_changed", this, "_feature_profile_changed");
+	}
+
 	if (p_what == NOTIFICATION_ENTER_TREE) {
 
 		if (sub_inspector) {
@@ -2238,6 +2308,11 @@ String EditorInspector::get_object_class() const {
 	return object_class;
 }
 
+void EditorInspector::_feature_profile_changed() {
+
+	update_tree();
+}
+
 void EditorInspector::_bind_methods() {
 
 	ClassDB::bind_method("_property_changed", &EditorInspector::_property_changed, DEFVAL(""), DEFVAL(false));
@@ -2254,6 +2329,7 @@ void EditorInspector::_bind_methods() {
 	ClassDB::bind_method("_resource_selected", &EditorInspector::_resource_selected);
 	ClassDB::bind_method("_object_id_selected", &EditorInspector::_object_id_selected);
 	ClassDB::bind_method("_vscroll_changed", &EditorInspector::_vscroll_changed);
+	ClassDB::bind_method("_feature_profile_changed", &EditorInspector::_feature_profile_changed);
 
 	ClassDB::bind_method("refresh", &EditorInspector::refresh);
 

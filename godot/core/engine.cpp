@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -38,6 +38,7 @@
 
 void Engine::set_iterations_per_second(int p_ips) {
 
+	ERR_FAIL_COND_MSG(p_ips <= 0, "Engine iterations per second must be greater than 0.");
 	ips = p_ips;
 }
 int Engine::get_iterations_per_second() const {
@@ -59,7 +60,7 @@ void Engine::set_target_fps(int p_fps) {
 	_target_fps = p_fps > 0 ? p_fps : 0;
 }
 
-float Engine::get_target_fps() const {
+int Engine::get_target_fps() const {
 	return _target_fps;
 }
 
@@ -93,11 +94,7 @@ Dictionary Engine::get_version_info() const {
 	Dictionary dict;
 	dict["major"] = VERSION_MAJOR;
 	dict["minor"] = VERSION_MINOR;
-#ifdef VERSION_PATCH
 	dict["patch"] = VERSION_PATCH;
-#else
-	dict["patch"] = 0;
-#endif
 	dict["hex"] = VERSION_HEX;
 	dict["status"] = VERSION_STATUS;
 	dict["build"] = VERSION_BUILD;
@@ -166,8 +163,10 @@ Array Engine::get_copyright_info() const {
 
 Dictionary Engine::get_donor_info() const {
 	Dictionary donors;
-	donors["platinum_sponsors"] = array_from_info(DONORS_SPONSOR_PLAT);
+	donors["platinum_sponsors"] = array_from_info(DONORS_SPONSOR_PLATINUM);
 	donors["gold_sponsors"] = array_from_info(DONORS_SPONSOR_GOLD);
+	donors["silver_sponsors"] = array_from_info(DONORS_SPONSOR_SILVER);
+	donors["bronze_sponsors"] = array_from_info(DONORS_SPONSOR_BRONZE);
 	donors["mini_sponsors"] = array_from_info(DONORS_SPONSOR_MINI);
 	donors["gold_donors"] = array_from_info(DONORS_GOLD);
 	donors["silver_donors"] = array_from_info(DONORS_SILVER);
@@ -196,8 +195,7 @@ void Engine::add_singleton(const Singleton &p_singleton) {
 Object *Engine::get_singleton_object(const String &p_name) const {
 
 	const Map<StringName, Object *>::Element *E = singleton_ptrs.find(p_name);
-	ERR_EXPLAIN("Failed to retrieve non-existent singleton '" + p_name + "'");
-	ERR_FAIL_COND_V(!E, NULL);
+	ERR_FAIL_COND_V_MSG(!E, NULL, "Failed to retrieve non-existent singleton '" + p_name + "'.");
 	return E->get();
 };
 
@@ -224,6 +222,7 @@ Engine::Engine() {
 	frames_drawn = 0;
 	ips = 60;
 	physics_jitter_fix = 0.5;
+	_physics_interpolation_fraction = 0.0f;
 	_frame_delay = 0;
 	_fps = 1;
 	_target_fps = 0;

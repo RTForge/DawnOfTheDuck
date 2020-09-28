@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,10 +30,11 @@
 
 #include "rich_text_label.h"
 
+#include "core/math/math_defs.h"
 #include "core/os/keyboard.h"
 #include "core/os/os.h"
+#include "modules/regex/regex.h"
 #include "scene/scene_string_names.h"
-
 #ifdef TOOLS_ENABLED
 #include "editor/editor_scale.h"
 #endif
@@ -139,7 +140,10 @@ Rect2 RichTextLabel::_get_text_rect() {
 	Ref<StyleBox> style = get_stylebox("normal");
 	return Rect2(style->get_offset(), get_size() - style->get_minimum_size());
 }
+
 int RichTextLabel::_process_line(ItemFrame *p_frame, const Vector2 &p_ofs, int &y, int p_width, int p_line, ProcessMode p_mode, const Ref<Font> &p_base_font, const Color &p_base_color, const Color &p_font_color_shadow, bool p_shadow_as_outline, const Point2 &shadow_ofs, const Point2i &p_click_pos, Item **r_click_item, int *r_click_char, bool *r_outside, int p_char_count) {
+
+	ERR_FAIL_INDEX_V((int)p_mode, 3, 0);
 
 	RID ci;
 	if (r_outside)
@@ -184,7 +188,7 @@ int RichTextLabel::_process_line(ItemFrame *p_frame, const Vector2 &p_ofs, int &
 	if (p_mode != PROCESS_CACHE && align != ALIGN_FILL)
 		wofs += line_ofs;
 
-	int begin = wofs;
+	int begin = margin;
 
 	Ref<Font> cfont = _find_font(it);
 	if (cfont.is_null())
@@ -194,6 +198,8 @@ int RichTextLabel::_process_line(ItemFrame *p_frame, const Vector2 &p_ofs, int &
 	int line_height = cfont->get_height();
 	int line_ascent = cfont->get_ascent();
 	int line_descent = cfont->get_descent();
+
+	int backtrack = 0; // for dynamic hidden content.
 
 	int nonblank_line_count = 0; //number of nonblank lines as counted during PROCESS_DRAW
 
@@ -205,6 +211,7 @@ int RichTextLabel::_process_line(ItemFrame *p_frame, const Vector2 &p_ofs, int &
 	{                                                                                                                                                           \
 		if (p_mode != PROCESS_CACHE) {                                                                                                                          \
 			line++;                                                                                                                                             \
+			backtrack = 0;                                                                                                                                      \
 			if (!line_is_blank) {                                                                                                                               \
 				nonblank_line_count++;                                                                                                                          \
 			}                                                                                                                                                   \
@@ -240,6 +247,11 @@ int RichTextLabel::_process_line(ItemFrame *p_frame, const Vector2 &p_ofs, int &
 			lh = line < l.height_caches.size() ? l.height_caches[line] : 1;                                                                                     \
 			line_ascent = line < l.ascent_caches.size() ? l.ascent_caches[line] : 1;                                                                            \
 			line_descent = line < l.descent_caches.size() ? l.descent_caches[line] : 1;                                                                         \
+			if (align != ALIGN_FILL) {                                                                                                                          \
+				if (line < l.offset_caches.size()) {                                                                                                            \
+					wofs = l.offset_caches[line];                                                                                                               \
+				}                                                                                                                                               \
+			}                                                                                                                                                   \
 		}                                                                                                                                                       \
 		if (p_mode == PROCESS_POINTER && r_click_item && p_click_pos.y >= p_ofs.y + y && p_click_pos.y <= p_ofs.y + y + lh && p_click_pos.x < p_ofs.x + wofs) { \
 			if (r_outside) *r_outside = true;                                                                                                                   \
@@ -249,24 +261,25 @@ int RichTextLabel::_process_line(ItemFrame *p_frame, const Vector2 &p_ofs, int &
 		}                                                                                                                                                       \
 	}
 
-#define ENSURE_WIDTH(m_width)                                                                                                                                   \
-	if (p_mode == PROCESS_CACHE) {                                                                                                                              \
-		l.maximum_width = MAX(l.maximum_width, MIN(p_width, wofs + m_width));                                                                                   \
-		l.minimum_width = MAX(l.minimum_width, m_width);                                                                                                        \
-	}                                                                                                                                                           \
-	if (wofs + m_width > p_width) {                                                                                                                             \
-		line_wrapped = true;                                                                                                                                    \
-		if (p_mode == PROCESS_CACHE) {                                                                                                                          \
-			if (spaces > 0)                                                                                                                                     \
-				spaces -= 1;                                                                                                                                    \
-		}                                                                                                                                                       \
-		if (p_mode == PROCESS_POINTER && r_click_item && p_click_pos.y >= p_ofs.y + y && p_click_pos.y <= p_ofs.y + y + lh && p_click_pos.x > p_ofs.x + wofs) { \
-			if (r_outside) *r_outside = true;                                                                                                                   \
-			*r_click_item = it;                                                                                                                                 \
-			*r_click_char = rchar;                                                                                                                              \
-			RETURN;                                                                                                                                             \
-		}                                                                                                                                                       \
-		NEW_LINE                                                                                                                                                \
+#define ENSURE_WIDTH(m_width)                                                                                                               \
+	if (p_mode == PROCESS_CACHE) {                                                                                                          \
+		l.maximum_width = MAX(l.maximum_width, MIN(p_width, wofs + m_width));                                                               \
+		l.minimum_width = MAX(l.minimum_width, m_width);                                                                                    \
+	}                                                                                                                                       \
+	if (wofs - backtrack + m_width > p_width) {                                                                                             \
+		line_wrapped = true;                                                                                                                \
+		if (p_mode == PROCESS_CACHE) {                                                                                                      \
+			if (spaces > 0)                                                                                                                 \
+				spaces -= 1;                                                                                                                \
+		}                                                                                                                                   \
+		const bool x_in_range = (p_click_pos.x > p_ofs.x + wofs) && (!p_frame->cell || p_click_pos.x < p_ofs.x + p_width);                  \
+		if (p_mode == PROCESS_POINTER && r_click_item && p_click_pos.y >= p_ofs.y + y && p_click_pos.y <= p_ofs.y + y + lh && x_in_range) { \
+			if (r_outside) *r_outside = true;                                                                                               \
+			*r_click_item = it;                                                                                                             \
+			*r_click_char = rchar;                                                                                                          \
+			RETURN;                                                                                                                         \
+		}                                                                                                                                   \
+		NEW_LINE                                                                                                                            \
 	}
 
 #define ADVANCE(m_width)                                                                                                                                                                                     \
@@ -292,7 +305,6 @@ int RichTextLabel::_process_line(ItemFrame *p_frame, const Vector2 &p_ofs, int &
 	Color selection_bg;
 
 	if (p_mode == PROCESS_DRAW) {
-
 		selection_fg = get_color("font_color_selected");
 		selection_bg = get_color("selection_color");
 	}
@@ -307,6 +319,25 @@ int RichTextLabel::_process_line(ItemFrame *p_frame, const Vector2 &p_ofs, int &
 
 		switch (it->type) {
 
+			case ITEM_ALIGN: {
+
+				ItemAlign *align_it = static_cast<ItemAlign *>(it);
+
+				align = align_it->align;
+
+			} break;
+			case ITEM_INDENT: {
+
+				if (it != l.from) {
+					ItemIndent *indent_it = static_cast<ItemIndent *>(it);
+
+					int indent = indent_it->level * tab_size * cfont->get_char_size(' ').width;
+					margin += indent;
+					begin += indent;
+					wofs += indent;
+				}
+
+			} break;
 			case ITEM_TEXT: {
 
 				ItemText *text = static_cast<ItemText *>(it);
@@ -324,16 +355,29 @@ int RichTextLabel::_process_line(ItemFrame *p_frame, const Vector2 &p_ofs, int &
 				Color font_color_shadow;
 				bool underline = false;
 				bool strikethrough = false;
+				ItemFade *fade = NULL;
+				int it_char_start = p_char_count;
+
+				Vector<ItemFX *> fx_stack = Vector<ItemFX *>();
+				_fetch_item_fx_stack(text, fx_stack);
+				bool custom_fx_ok = true;
 
 				if (p_mode == PROCESS_DRAW) {
 					color = _find_color(text, p_base_color);
 					font_color_shadow = _find_color(text, p_font_color_shadow);
 					if (_find_underline(text) || (_find_meta(text, &meta) && underline_meta)) {
-
 						underline = true;
 					} else if (_find_strikethrough(text)) {
-
 						strikethrough = true;
+					}
+
+					Item *fade_item = it;
+					while (fade_item) {
+						if (fade_item->type == ITEM_FADE) {
+							fade = static_cast<ItemFade *>(fade_item);
+							break;
+						}
+						fade_item = fade_item->parent;
 					}
 
 				} else if (p_mode == PROCESS_CACHE) {
@@ -349,6 +393,7 @@ int RichTextLabel::_process_line(ItemFrame *p_frame, const Vector2 &p_ofs, int &
 					int fw = 0;
 
 					lh = 0;
+
 					if (p_mode != PROCESS_CACHE) {
 						lh = line < l.height_caches.size() ? l.height_caches[line] : 1;
 						line_ascent = line < l.ascent_caches.size() ? l.ascent_caches[line] : 1;
@@ -391,13 +436,12 @@ int RichTextLabel::_process_line(ItemFrame *p_frame, const Vector2 &p_ofs, int &
 
 					{
 
-						int ofs = 0;
+						int ofs = 0 - backtrack;
 
 						for (int i = 0; i < end; i++) {
 							int pofs = wofs + ofs;
 
 							if (p_mode == PROCESS_POINTER && r_click_char && p_click_pos.y >= p_ofs.y + y && p_click_pos.y <= p_ofs.y + y + lh) {
-								//int o = (wofs+w)-p_click_pos.x;
 
 								int cw = font->get_char_size(c[i], c[i + 1]).x;
 
@@ -412,8 +456,11 @@ int RichTextLabel::_process_line(ItemFrame *p_frame, const Vector2 &p_ofs, int &
 
 								ofs += cw;
 							} else if (p_mode == PROCESS_DRAW) {
-
 								bool selected = false;
+								Color fx_color = Color(color);
+								Point2 fx_offset;
+								CharType fx_char = c[i];
+
 								if (selection.active) {
 
 									int cofs = (&c[i]) - cf;
@@ -423,8 +470,87 @@ int RichTextLabel::_process_line(ItemFrame *p_frame, const Vector2 &p_ofs, int &
 								}
 
 								int cw = 0;
+								int c_item_offset = p_char_count - it_char_start;
 
-								bool visible = visible_characters < 0 || (p_char_count < visible_characters && YRANGE_VISIBLE(y + lh - line_descent - line_ascent, line_ascent + line_descent));
+								float faded_visibility = 1.0f;
+								if (fade) {
+									if (c_item_offset >= fade->starting_index) {
+										faded_visibility -= (float)(c_item_offset - fade->starting_index) / (float)fade->length;
+										faded_visibility = faded_visibility < 0.0f ? 0.0f : faded_visibility;
+									}
+									fx_color.a = faded_visibility;
+								}
+
+								bool visible = visible_characters < 0 || ((p_char_count < visible_characters && YRANGE_VISIBLE(y + lh - line_descent - line_ascent, line_ascent + line_descent)) &&
+																				 faded_visibility > 0.0f);
+
+								const bool previously_visible = visible;
+
+								for (int j = 0; j < fx_stack.size(); j++) {
+
+									ItemFX *item_fx = fx_stack[j];
+
+									if (item_fx->type == ITEM_CUSTOMFX && custom_fx_ok) {
+										ItemCustomFX *item_custom = static_cast<ItemCustomFX *>(item_fx);
+
+										Ref<CharFXTransform> charfx = item_custom->char_fx_transform;
+										Ref<RichTextEffect> custom_effect = item_custom->custom_effect;
+
+										if (!custom_effect.is_null()) {
+											charfx->elapsed_time = item_custom->elapsed_time;
+											charfx->relative_index = c_item_offset;
+											charfx->absolute_index = p_char_count;
+											charfx->visibility = visible;
+											charfx->offset = fx_offset;
+											charfx->color = fx_color;
+											charfx->character = fx_char;
+
+											bool effect_status = custom_effect->_process_effect_impl(charfx);
+											custom_fx_ok = effect_status;
+
+											fx_offset += charfx->offset;
+											fx_color = charfx->color;
+											visible &= charfx->visibility;
+											fx_char = charfx->character;
+										}
+									} else if (item_fx->type == ITEM_SHAKE) {
+										ItemShake *item_shake = static_cast<ItemShake *>(item_fx);
+
+										uint64_t char_current_rand = item_shake->offset_random(c_item_offset);
+										uint64_t char_previous_rand = item_shake->offset_previous_random(c_item_offset);
+										uint64_t max_rand = 2147483647;
+										double current_offset = Math::range_lerp(char_current_rand % max_rand, 0, max_rand, 0.0f, 2.f * (float)Math_PI);
+										double previous_offset = Math::range_lerp(char_previous_rand % max_rand, 0, max_rand, 0.0f, 2.f * (float)Math_PI);
+										double n_time = (double)(item_shake->elapsed_time / (0.5f / item_shake->rate));
+										n_time = (n_time > 1.0) ? 1.0 : n_time;
+										fx_offset += Point2(Math::lerp(Math::sin(previous_offset),
+																	Math::sin(current_offset),
+																	n_time),
+															 Math::lerp(Math::cos(previous_offset),
+																	 Math::cos(current_offset),
+																	 n_time)) *
+													 (float)item_shake->strength / 10.0f;
+									} else if (item_fx->type == ITEM_WAVE) {
+										ItemWave *item_wave = static_cast<ItemWave *>(item_fx);
+
+										double value = Math::sin(item_wave->frequency * item_wave->elapsed_time + ((p_ofs.x + pofs) / 50)) * (item_wave->amplitude / 10.0f);
+										fx_offset += Point2(0, 1) * value;
+									} else if (item_fx->type == ITEM_TORNADO) {
+										ItemTornado *item_tornado = static_cast<ItemTornado *>(item_fx);
+
+										double torn_x = Math::sin(item_tornado->frequency * item_tornado->elapsed_time + ((p_ofs.x + pofs) / 50)) * (item_tornado->radius);
+										double torn_y = Math::cos(item_tornado->frequency * item_tornado->elapsed_time + ((p_ofs.x + pofs) / 50)) * (item_tornado->radius);
+										fx_offset += Point2(torn_x, torn_y);
+									} else if (item_fx->type == ITEM_RAINBOW) {
+										ItemRainbow *item_rainbow = static_cast<ItemRainbow *>(item_fx);
+
+										fx_color = fx_color.from_hsv(item_rainbow->frequency * (item_rainbow->elapsed_time + ((p_ofs.x + pofs) / 50)),
+												item_rainbow->saturation,
+												item_rainbow->value,
+												fx_color.a);
+									}
+								}
+
 								if (visible)
 									line_is_blank = false;
 
@@ -432,34 +558,37 @@ int RichTextLabel::_process_line(ItemFrame *p_frame, const Vector2 &p_ofs, int &
 									visible = false;
 
 								if (visible) {
+
 									if (selected) {
-										cw = font->get_char_size(c[i], c[i + 1]).x;
+										cw = font->get_char_size(fx_char, c[i + 1]).x;
 										draw_rect(Rect2(p_ofs.x + pofs, p_ofs.y + y, cw, lh), selection_bg);
 									}
 
 									if (p_font_color_shadow.a > 0) {
 										float x_ofs_shadow = align_ofs + pofs;
 										float y_ofs_shadow = y + lh - line_descent;
-										float move = font->draw_char(ci, Point2(x_ofs_shadow, y_ofs_shadow) + shadow_ofs, c[i], c[i + 1], p_font_color_shadow);
+										font->draw_char(ci, Point2(x_ofs_shadow, y_ofs_shadow) + shadow_ofs + fx_offset, fx_char, c[i + 1], p_font_color_shadow);
 
 										if (p_shadow_as_outline) {
-											font->draw_char(ci, Point2(x_ofs_shadow, y_ofs_shadow) + Vector2(-shadow_ofs.x, shadow_ofs.y), c[i], c[i + 1], p_font_color_shadow);
-											font->draw_char(ci, Point2(x_ofs_shadow, y_ofs_shadow) + Vector2(shadow_ofs.x, -shadow_ofs.y), c[i], c[i + 1], p_font_color_shadow);
-											font->draw_char(ci, Point2(x_ofs_shadow, y_ofs_shadow) + Vector2(-shadow_ofs.x, -shadow_ofs.y), c[i], c[i + 1], p_font_color_shadow);
+											font->draw_char(ci, Point2(x_ofs_shadow, y_ofs_shadow) + Vector2(-shadow_ofs.x, shadow_ofs.y) + fx_offset, fx_char, c[i + 1], p_font_color_shadow);
+											font->draw_char(ci, Point2(x_ofs_shadow, y_ofs_shadow) + Vector2(shadow_ofs.x, -shadow_ofs.y) + fx_offset, fx_char, c[i + 1], p_font_color_shadow);
+											font->draw_char(ci, Point2(x_ofs_shadow, y_ofs_shadow) + Vector2(-shadow_ofs.x, -shadow_ofs.y) + fx_offset, fx_char, c[i + 1], p_font_color_shadow);
 										}
-										x_ofs_shadow += move;
 									}
 
 									if (selected) {
-										drawer.draw_char(ci, p_ofs + Point2(align_ofs + pofs, y + lh - line_descent), c[i], c[i + 1], override_selected_font_color ? selection_fg : color);
+										drawer.draw_char(ci, p_ofs + Point2(align_ofs + pofs, y + lh - line_descent), fx_char, c[i + 1], override_selected_font_color ? selection_fg : fx_color);
 									} else {
-										cw = drawer.draw_char(ci, p_ofs + Point2(align_ofs + pofs, y + lh - line_descent), c[i], c[i + 1], color);
+										cw = drawer.draw_char(ci, p_ofs + Point2(align_ofs + pofs, y + lh - line_descent) + fx_offset, fx_char, c[i + 1], fx_color);
 									}
+								} else if (previously_visible && c[i] != '\t') {
+									backtrack += font->get_char_size(fx_char, c[i + 1]).x;
 								}
 
 								p_char_count++;
 								if (c[i] == '\t') {
 									cw = tab_size * font->get_char_size(' ').width;
+									backtrack = MAX(0, backtrack - cw);
 								}
 
 								ofs += cw;
@@ -478,7 +607,7 @@ int RichTextLabel::_process_line(ItemFrame *p_frame, const Vector2 &p_ofs, int &
 						} else if (strikethrough) {
 							Color uc = color;
 							uc.a *= 0.5;
-							int uy = y + lh / 2 - line_descent + 2;
+							int uy = y + lh - (line_ascent + line_descent) / 2;
 							float strikethrough_width = 1.0;
 #ifdef TOOLS_ENABLED
 							strikethrough_width *= EDSCALE;
@@ -510,24 +639,25 @@ int RichTextLabel::_process_line(ItemFrame *p_frame, const Vector2 &p_ofs, int &
 				if (p_mode == PROCESS_POINTER && r_click_char)
 					*r_click_char = 0;
 
-				ENSURE_WIDTH(img->image->get_width());
+				ENSURE_WIDTH(img->size.width);
 
-				bool visible = visible_characters < 0 || (p_char_count < visible_characters && YRANGE_VISIBLE(y + lh - font->get_descent() - img->image->get_height(), img->image->get_height()));
+				bool visible = visible_characters < 0 || (p_char_count < visible_characters && YRANGE_VISIBLE(y + lh - font->get_descent() - img->size.height, img->size.height));
 				if (visible)
 					line_is_blank = false;
 
 				if (p_mode == PROCESS_DRAW && visible) {
-					img->image->draw(ci, p_ofs + Point2(align_ofs + wofs, y + lh - font->get_descent() - img->image->get_height()));
+					img->image->draw_rect(ci, Rect2(p_ofs + Point2(align_ofs + wofs, y + lh - font->get_descent() - img->size.height), img->size));
 				}
 				p_char_count++;
 
-				ADVANCE(img->image->get_width());
-				CHECK_HEIGHT((img->image->get_height() + font->get_descent()));
+				ADVANCE(img->size.width);
+				CHECK_HEIGHT((img->size.height + font->get_descent()));
 
 			} break;
 			case ITEM_NEWLINE: {
 
 				lh = 0;
+
 				if (p_mode != PROCESS_CACHE) {
 					lh = line < l.height_caches.size() ? l.height_caches[line] : 1;
 					line_is_blank = true;
@@ -592,7 +722,7 @@ int RichTextLabel::_process_line(ItemFrame *p_frame, const Vector2 &p_ofs, int &
 					//assign actual widths
 					for (int i = 0; i < table->columns.size(); i++) {
 						table->columns.write[i].width = table->columns[i].min_width;
-						if (table->columns[i].expand)
+						if (table->columns[i].expand && total_ratio > 0)
 							table->columns.write[i].width += table->columns[i].expand_ratio * remaining_width / total_ratio;
 						table->total_width += table->columns[i].width + hseparation;
 					}
@@ -711,7 +841,8 @@ int RichTextLabel::_process_line(ItemFrame *p_frame, const Vector2 &p_ofs, int &
 
 			} break;
 
-			default: {}
+			default: {
+			}
 		}
 
 		Item *itp = it;
@@ -752,6 +883,8 @@ void RichTextLabel::_scroll_changed(double) {
 	else
 		scroll_following = false;
 
+	scroll_updated = true;
+
 	update();
 }
 
@@ -777,13 +910,54 @@ void RichTextLabel::_update_scroll() {
 		main->first_invalid_line = 0; //invalidate ALL
 		_validate_line_caches(main);
 	}
-	scroll_updated = true;
+}
+
+void RichTextLabel::_update_fx(RichTextLabel::ItemFrame *p_frame, float p_delta_time) {
+	Item *it = p_frame;
+	while (it) {
+		ItemFX *ifx = NULL;
+
+		if (it->type == ITEM_CUSTOMFX || it->type == ITEM_SHAKE || it->type == ITEM_WAVE || it->type == ITEM_TORNADO || it->type == ITEM_RAINBOW) {
+			ifx = static_cast<ItemFX *>(it);
+		}
+
+		if (!ifx) {
+			it = _get_next_item(it, true);
+			continue;
+		}
+
+		ifx->elapsed_time += p_delta_time;
+
+		ItemShake *shake = NULL;
+
+		if (it->type == ITEM_SHAKE) {
+			shake = static_cast<ItemShake *>(it);
+		}
+
+		if (shake) {
+			bool cycle = (shake->elapsed_time > (1.0f / shake->rate));
+			if (cycle) {
+				shake->elapsed_time -= (1.0f / shake->rate);
+				shake->reroll_random();
+			}
+		}
+
+		it = _get_next_item(it, true);
+	}
 }
 
 void RichTextLabel::_notification(int p_what) {
 
 	switch (p_what) {
 
+		case NOTIFICATION_MOUSE_EXIT: {
+			if (meta_hovering) {
+				meta_hovering = NULL;
+				emit_signal("meta_hover_ended", current_meta);
+				current_meta = false;
+				update();
+			}
+		} break;
 		case NOTIFICATION_RESIZED: {
 
 			main->first_invalid_line = 0; //invalidate ALL
@@ -801,11 +975,7 @@ void RichTextLabel::_notification(int p_what) {
 		} break;
 		case NOTIFICATION_THEME_CHANGED: {
 
-			if (is_inside_tree() && use_bbcode) {
-				parse_bbcode(bbcode);
-				//first_invalid_line=0; //invalidate ALL
-				//update();
-			}
+			update();
 
 		} break;
 		case NOTIFICATION_DRAW: {
@@ -857,6 +1027,12 @@ void RichTextLabel::_notification(int p_what) {
 
 				from_line++;
 			}
+		} break;
+		case NOTIFICATION_INTERNAL_PROCESS: {
+			float dt = get_process_delta_time();
+
+			_update_fx(main, dt);
+			update();
 		}
 	}
 }
@@ -900,18 +1076,21 @@ void RichTextLabel::_find_click(ItemFrame *p_frame, const Point2i &p_click, Item
 
 Control::CursorShape RichTextLabel::get_cursor_shape(const Point2 &p_pos) const {
 
-	if (!underline_meta || selection.click)
+	if (!underline_meta)
 		return CURSOR_ARROW;
+
+	if (selection.click)
+		return CURSOR_IBEAM;
 
 	if (main->first_invalid_line < main->lines.size())
 		return CURSOR_ARROW; //invalid
 
 	int line = 0;
 	Item *item = NULL;
+	bool outside;
+	((RichTextLabel *)(this))->_find_click(main, p_pos, &item, &line, &outside);
 
-	((RichTextLabel *)(this))->_find_click(main, p_pos, &item, &line);
-
-	if (item && ((RichTextLabel *)(this))->_find_meta(item, NULL))
+	if (item && !outside && ((RichTextLabel *)(this))->_find_meta(item, NULL))
 		return CURSOR_POINTING_HAND;
 
 	return CURSOR_ARROW;
@@ -926,11 +1105,67 @@ void RichTextLabel::_gui_input(Ref<InputEvent> p_event) {
 			return;
 
 		if (b->get_button_index() == BUTTON_LEFT) {
+			if (b->is_pressed() && !b->is_doubleclick()) {
+				scroll_updated = false;
+				int line = 0;
+				Item *item = NULL;
 
-			if (true) {
+				bool outside;
+				_find_click(main, b->get_position(), &item, &line, &outside);
 
-				if (b->is_pressed() && !b->is_doubleclick()) {
-					scroll_updated = false;
+				if (item) {
+
+					if (selection.enabled) {
+
+						selection.click = item;
+						selection.click_char = line;
+
+						// Erase previous selection.
+						if (selection.active) {
+							selection.from = NULL;
+							selection.from_char = '\0';
+							selection.to = NULL;
+							selection.to_char = '\0';
+							selection.active = false;
+
+							update();
+						}
+					}
+				}
+			} else if (b->is_pressed() && b->is_doubleclick() && selection.enabled) {
+
+				//doubleclick: select word
+				int line = 0;
+				Item *item = NULL;
+				bool outside;
+
+				_find_click(main, b->get_position(), &item, &line, &outside);
+
+				while (item && item->type != ITEM_TEXT) {
+
+					item = _get_next_item(item, true);
+				}
+
+				if (item && item->type == ITEM_TEXT) {
+
+					String itext = static_cast<ItemText *>(item)->text;
+
+					int beg, end;
+					if (select_word(itext, line, beg, end)) {
+
+						selection.from = item;
+						selection.to = item;
+						selection.from_char = beg;
+						selection.to_char = end - 1;
+						selection.active = true;
+						update();
+					}
+				}
+			} else if (!b->is_pressed()) {
+
+				selection.click = NULL;
+
+				if (!b->is_doubleclick() && !scroll_updated) {
 					int line = 0;
 					Item *item = NULL;
 
@@ -939,71 +1174,11 @@ void RichTextLabel::_gui_input(Ref<InputEvent> p_event) {
 
 					if (item) {
 
-						if (selection.enabled) {
+						Variant meta;
+						if (!outside && _find_meta(item, &meta)) {
+							//meta clicked
 
-							selection.click = item;
-							selection.click_char = line;
-
-							// Erase previous selection.
-							if (selection.active) {
-								selection.from = NULL;
-								selection.from_char = '\0';
-								selection.to = NULL;
-								selection.to_char = '\0';
-								selection.active = false;
-
-								update();
-							}
-						}
-					}
-				} else if (b->is_pressed() && b->is_doubleclick() && selection.enabled) {
-
-					//doubleclick: select word
-					int line = 0;
-					Item *item = NULL;
-					bool outside;
-
-					_find_click(main, b->get_position(), &item, &line, &outside);
-
-					while (item && item->type != ITEM_TEXT) {
-
-						item = _get_next_item(item, true);
-					}
-
-					if (item && item->type == ITEM_TEXT) {
-
-						String itext = static_cast<ItemText *>(item)->text;
-
-						int beg, end;
-						if (select_word(itext, line, beg, end)) {
-
-							selection.from = item;
-							selection.to = item;
-							selection.from_char = beg;
-							selection.to_char = end - 1;
-							selection.active = true;
-							update();
-						}
-					}
-				} else if (!b->is_pressed()) {
-
-					selection.click = NULL;
-
-					if (!b->is_doubleclick() && !scroll_updated) {
-						int line = 0;
-						Item *item = NULL;
-
-						bool outside;
-						_find_click(main, b->get_position(), &item, &line, &outside);
-
-						if (item) {
-
-							Variant meta;
-							if (!outside && _find_meta(item, &meta)) {
-								//meta clicked
-
-								emit_signal("meta_clicked", meta);
-							}
+							emit_signal("meta_clicked", meta);
 						}
 					}
 				}
@@ -1011,15 +1186,11 @@ void RichTextLabel::_gui_input(Ref<InputEvent> p_event) {
 		}
 
 		if (b->get_button_index() == BUTTON_WHEEL_UP) {
-
 			if (scroll_active)
-
 				vscroll->set_value(vscroll->get_value() - vscroll->get_page() * b->get_factor() * 0.5 / 8);
 		}
 		if (b->get_button_index() == BUTTON_WHEEL_DOWN) {
-
 			if (scroll_active)
-
 				vscroll->set_value(vscroll->get_value() + vscroll->get_page() * b->get_factor() * 0.5 / 8);
 		}
 	}
@@ -1038,49 +1209,59 @@ void RichTextLabel::_gui_input(Ref<InputEvent> p_event) {
 
 	if (k.is_valid()) {
 		if (k->is_pressed() && !k->get_alt() && !k->get_shift()) {
-			bool handled = true;
+			bool handled = false;
 			switch (k->get_scancode()) {
 				case KEY_PAGEUP: {
 
-					if (vscroll->is_visible_in_tree())
+					if (vscroll->is_visible_in_tree()) {
 						vscroll->set_value(vscroll->get_value() - vscroll->get_page());
+						handled = true;
+					}
 				} break;
 				case KEY_PAGEDOWN: {
 
-					if (vscroll->is_visible_in_tree())
+					if (vscroll->is_visible_in_tree()) {
 						vscroll->set_value(vscroll->get_value() + vscroll->get_page());
+						handled = true;
+					}
 				} break;
 				case KEY_UP: {
 
-					if (vscroll->is_visible_in_tree())
+					if (vscroll->is_visible_in_tree()) {
 						vscroll->set_value(vscroll->get_value() - get_font("normal_font")->get_height());
+						handled = true;
+					}
 				} break;
 				case KEY_DOWN: {
 
-					if (vscroll->is_visible_in_tree())
+					if (vscroll->is_visible_in_tree()) {
 						vscroll->set_value(vscroll->get_value() + get_font("normal_font")->get_height());
+						handled = true;
+					}
 				} break;
 				case KEY_HOME: {
 
-					if (vscroll->is_visible_in_tree())
+					if (vscroll->is_visible_in_tree()) {
 						vscroll->set_value(0);
+						handled = true;
+					}
 				} break;
 				case KEY_END: {
 
-					if (vscroll->is_visible_in_tree())
+					if (vscroll->is_visible_in_tree()) {
 						vscroll->set_value(vscroll->get_max());
+						handled = true;
+					}
 				} break;
 				case KEY_INSERT:
 				case KEY_C: {
 
 					if (k->get_command()) {
 						selection_copy();
-					} else {
-						handled = false;
+						handled = true;
 					}
 
 				} break;
-				default: handled = false;
 			}
 
 			if (handled)
@@ -1144,8 +1325,8 @@ void RichTextLabel::_gui_input(Ref<InputEvent> p_event) {
 				emit_signal("meta_hover_started", meta);
 			}
 		} else if (meta_hovering) {
-			emit_signal("meta_hover_ended", current_meta);
 			meta_hovering = NULL;
+			emit_signal("meta_hover_ended", current_meta);
 			current_meta = false;
 		}
 	}
@@ -1270,8 +1451,33 @@ bool RichTextLabel::_find_strikethrough(Item *p_item) {
 	return false;
 }
 
-bool RichTextLabel::_find_meta(Item *p_item, Variant *r_meta, ItemMeta **r_item) {
+bool RichTextLabel::_find_by_type(Item *p_item, ItemType p_type) {
 
+	ERR_FAIL_INDEX_V((int)p_type, 19, false);
+
+	Item *item = p_item;
+
+	while (item) {
+		if (item->type == p_type) {
+			return true;
+		}
+		item = item->parent;
+	}
+	return false;
+}
+
+void RichTextLabel::_fetch_item_fx_stack(Item *p_item, Vector<ItemFX *> &r_stack) {
+	Item *item = p_item;
+	while (item) {
+		if (item->type == ITEM_CUSTOMFX || item->type == ITEM_SHAKE || item->type == ITEM_WAVE || item->type == ITEM_TORNADO || item->type == ITEM_RAINBOW) {
+			r_stack.push_back(static_cast<ItemFX *>(item));
+		}
+
+		item = item->parent;
+	}
+}
+
+bool RichTextLabel::_find_meta(Item *p_item, Variant *r_meta, ItemMeta **r_item) {
 	Item *item = p_item;
 
 	while (item) {
@@ -1287,6 +1493,23 @@ bool RichTextLabel::_find_meta(Item *p_item, Variant *r_meta, ItemMeta **r_item)
 		}
 
 		item = item->parent;
+	}
+
+	return false;
+}
+
+bool RichTextLabel::_find_layout_subitem(Item *from, Item *to) {
+
+	if (from && from != to) {
+		if (from->type != ITEM_FONT && from->type != ITEM_COLOR && from->type != ITEM_UNDERLINE && from->type != ITEM_STRIKETHROUGH)
+			return true;
+
+		for (List<Item *>::Element *E = from->subitems.front(); E; E = E->next()) {
+			bool layout = _find_layout_subitem(E->get(), to);
+
+			if (layout)
+				return true;
+		}
 	}
 
 	return false;
@@ -1333,6 +1556,10 @@ void RichTextLabel::_validate_line_caches(ItemFrame *p_frame) {
 		vscroll->set_value(total_height - size.height);
 
 	updating_scroll = false;
+
+	if (fit_content_height) {
+		minimum_size_changed();
+	}
 }
 
 void RichTextLabel::_invalidate_current_line(ItemFrame *p_frame) {
@@ -1409,9 +1636,13 @@ void RichTextLabel::_add_item(Item *p_item, bool p_enter, bool p_ensure_newline)
 	if (p_enter)
 		current = p_item;
 
-	if (p_ensure_newline && current_frame->lines[current_frame->lines.size() - 1].from) {
-		_invalidate_current_line(current_frame);
-		current_frame->lines.resize(current_frame->lines.size() + 1);
+	if (p_ensure_newline) {
+		Item *from = current_frame->lines[current_frame->lines.size() - 1].from;
+		// only create a new line for Item types that generate content/layout, ignore those that represent formatting/styling
+		if (_find_layout_subitem(from, p_item)) {
+			_invalidate_current_line(current_frame);
+			current_frame->lines.resize(current_frame->lines.size() + 1);
+		}
 	}
 
 	if (current_frame->lines[current_frame->lines.size() - 1].from == NULL) {
@@ -1441,7 +1672,7 @@ void RichTextLabel::_remove_item(Item *p_item, const int p_line, const int p_sub
 	}
 }
 
-void RichTextLabel::add_image(const Ref<Texture> &p_image) {
+void RichTextLabel::add_image(const Ref<Texture> &p_image, const int p_width, const int p_height) {
 
 	if (current->type == ITEM_TABLE)
 		return;
@@ -1450,6 +1681,30 @@ void RichTextLabel::add_image(const Ref<Texture> &p_image) {
 	ItemImage *item = memnew(ItemImage);
 
 	item->image = p_image;
+
+	if (p_width > 0) {
+		// custom width
+		item->size.width = p_width;
+		if (p_height > 0) {
+			// custom height
+			item->size.height = p_height;
+		} else {
+			// calculate height to keep aspect ratio
+			item->size.height = p_image->get_height() * p_width / p_image->get_width();
+		}
+	} else {
+		if (p_height > 0) {
+			// custom height
+			item->size.height = p_height;
+			// calculate width to keep aspect ratio
+			item->size.width = p_image->get_width() * p_height / p_image->get_height();
+		} else {
+			// keep original width and height
+			item->size.height = p_image->get_height();
+			item->size.width = p_image->get_width();
+		}
+	}
+
 	_add_item(item, false);
 }
 
@@ -1484,6 +1739,9 @@ bool RichTextLabel::remove_line(const int p_line) {
 
 	if (!was_newline) {
 		current_frame->lines.remove(p_line);
+		if (current_frame->lines.size() == 0) {
+			current_frame->lines.resize(1);
+		}
 	}
 
 	if (p_line == 0 && current->subitems.size() > 0)
@@ -1502,6 +1760,41 @@ void RichTextLabel::push_font(const Ref<Font> &p_font) {
 
 	item->font = p_font;
 	_add_item(item, true);
+}
+
+void RichTextLabel::push_normal() {
+	Ref<Font> normal_font = get_font("normal_font");
+	ERR_FAIL_COND(normal_font.is_null());
+
+	push_font(normal_font);
+}
+
+void RichTextLabel::push_bold() {
+	Ref<Font> bold_font = get_font("bold_font");
+	ERR_FAIL_COND(bold_font.is_null());
+
+	push_font(bold_font);
+}
+
+void RichTextLabel::push_bold_italics() {
+	Ref<Font> bold_italics_font = get_font("bold_italics_font");
+	ERR_FAIL_COND(bold_italics_font.is_null());
+
+	push_font(bold_italics_font);
+}
+
+void RichTextLabel::push_italics() {
+	Ref<Font> italics_font = get_font("italics_font");
+	ERR_FAIL_COND(italics_font.is_null());
+
+	push_font(italics_font);
+}
+
+void RichTextLabel::push_mono() {
+	Ref<Font> mono_font = get_font("mono_font");
+	ERR_FAIL_COND(mono_font.is_null());
+
+	push_font(mono_font);
 }
 
 void RichTextLabel::push_color(const Color &p_color) {
@@ -1582,6 +1875,49 @@ void RichTextLabel::push_table(int p_columns) {
 	_add_item(item, true, true);
 }
 
+void RichTextLabel::push_fade(int p_start_index, int p_length) {
+	ItemFade *item = memnew(ItemFade);
+	item->starting_index = p_start_index;
+	item->length = p_length;
+	_add_item(item, true);
+}
+
+void RichTextLabel::push_shake(int p_strength = 10, float p_rate = 24.0f) {
+	ItemShake *item = memnew(ItemShake);
+	item->strength = p_strength;
+	item->rate = p_rate;
+	_add_item(item, true);
+}
+
+void RichTextLabel::push_wave(float p_frequency = 1.0f, float p_amplitude = 10.0f) {
+	ItemWave *item = memnew(ItemWave);
+	item->frequency = p_frequency;
+	item->amplitude = p_amplitude;
+	_add_item(item, true);
+}
+
+void RichTextLabel::push_tornado(float p_frequency = 1.0f, float p_radius = 10.0f) {
+	ItemTornado *item = memnew(ItemTornado);
+	item->frequency = p_frequency;
+	item->radius = p_radius;
+	_add_item(item, true);
+}
+
+void RichTextLabel::push_rainbow(float p_saturation, float p_value, float p_frequency) {
+	ItemRainbow *item = memnew(ItemRainbow);
+	item->frequency = p_frequency;
+	item->saturation = p_saturation;
+	item->value = p_value;
+	_add_item(item, true);
+}
+
+void RichTextLabel::push_customfx(Ref<RichTextEffect> p_custom_effect, Dictionary p_environment) {
+	ItemCustomFX *item = memnew(ItemCustomFX);
+	item->custom_effect = p_custom_effect;
+	item->char_fx_transform->environment = p_environment;
+	_add_item(item, true);
+}
+
 void RichTextLabel::set_table_column_expand(int p_column, bool p_expand, int p_ratio) {
 
 	ERR_FAIL_COND(current->type != ITEM_TABLE);
@@ -1636,6 +1972,9 @@ void RichTextLabel::clear() {
 	selection.click = NULL;
 	selection.active = false;
 	current_idx = 1;
+	if (scroll_follow) {
+		scroll_following = true;
+	}
 }
 
 void RichTextLabel::set_tab_size(int p_spaces) {
@@ -1648,6 +1987,17 @@ void RichTextLabel::set_tab_size(int p_spaces) {
 int RichTextLabel::get_tab_size() const {
 
 	return tab_size;
+}
+
+void RichTextLabel::set_fit_content_height(bool p_enabled) {
+	if (p_enabled != fit_content_height) {
+		fit_content_height = p_enabled;
+		minimum_size_changed();
+	}
+}
+
+bool RichTextLabel::is_fit_content_height_enabled() const {
+	return fit_content_height;
 }
 
 void RichTextLabel::set_meta_underline(bool p_underline) {
@@ -1682,6 +2032,7 @@ void RichTextLabel::set_scroll_active(bool p_active) {
 		return;
 
 	scroll_active = p_active;
+	vscroll->set_drag_node_enabled(p_active);
 	update();
 }
 
@@ -1726,6 +2077,8 @@ Error RichTextLabel::append_bbcode(const String &p_bbcode) {
 	bool in_bold = false;
 	bool in_italics = false;
 
+	set_process_internal(false);
+
 	while (pos < p_bbcode.length()) {
 
 		int brk_pos = p_bbcode.find("[", pos);
@@ -1749,7 +2102,8 @@ Error RichTextLabel::append_bbcode(const String &p_bbcode) {
 		}
 
 		String tag = p_bbcode.substr(brk_pos + 1, brk_end - brk_pos - 1);
-
+		Vector<String> split_tag_block = tag.split(" ", false);
+		String bbcode = !split_tag_block.empty() ? split_tag_block[0] : "";
 		if (tag.begins_with("/") && tag_stack.size()) {
 
 			bool tag_ok = tag_stack.size() && tag_stack.front()->get() == tag.substr(1, tag.length());
@@ -1762,9 +2116,8 @@ Error RichTextLabel::append_bbcode(const String &p_bbcode) {
 				indent_level--;
 
 			if (!tag_ok) {
-
-				add_text("[");
-				pos++;
+				add_text("[" + tag);
+				pos = brk_end;
 				continue;
 			}
 
@@ -1889,6 +2242,7 @@ Error RichTextLabel::append_bbcode(const String &p_bbcode) {
 			int end = p_bbcode.find("[", brk_end);
 			if (end == -1)
 				end = p_bbcode.length();
+
 			String image = p_bbcode.substr(brk_end + 1, end - brk_end - 1);
 
 			Ref<Texture> texture = ResourceLoader::load(image, "Texture");
@@ -1897,6 +2251,32 @@ Error RichTextLabel::append_bbcode(const String &p_bbcode) {
 
 			pos = end;
 			tag_stack.push_front(tag);
+		} else if (tag.begins_with("img=")) {
+
+			int width = 0;
+			int height = 0;
+
+			String params = tag.substr(4, tag.length());
+			int sep = params.find("x");
+			if (sep == -1) {
+				width = params.to_int();
+			} else {
+				width = params.substr(0, sep).to_int();
+				height = params.substr(sep + 1, params.length()).to_int();
+			}
+
+			int end = p_bbcode.find("[", brk_end);
+			if (end == -1)
+				end = p_bbcode.length();
+
+			String image = p_bbcode.substr(brk_end + 1, end - brk_end - 1);
+
+			Ref<Texture> texture = ResourceLoader::load(image, "Texture");
+			if (texture.is_valid())
+				add_image(texture, width, height);
+
+			pos = end;
+			tag_stack.push_front("img");
 		} else if (tag.begins_with("color=")) {
 
 			String col = tag.substr(6, tag.length());
@@ -1905,37 +2285,37 @@ Error RichTextLabel::append_bbcode(const String &p_bbcode) {
 			if (col.begins_with("#"))
 				color = Color::html(col);
 			else if (col == "aqua")
-				color = Color::html("#00FFFF");
+				color = Color(0, 1, 1);
 			else if (col == "black")
-				color = Color::html("#000000");
+				color = Color(0, 0, 0);
 			else if (col == "blue")
-				color = Color::html("#0000FF");
+				color = Color(0, 0, 1);
 			else if (col == "fuchsia")
-				color = Color::html("#FF00FF");
+				color = Color(1, 0, 1);
 			else if (col == "gray" || col == "grey")
-				color = Color::html("#808080");
+				color = Color(0.5, 0.5, 0.5);
 			else if (col == "green")
-				color = Color::html("#008000");
+				color = Color(0, 0.5, 0);
 			else if (col == "lime")
-				color = Color::html("#00FF00");
+				color = Color(0, 1, 0);
 			else if (col == "maroon")
-				color = Color::html("#800000");
+				color = Color(0.5, 0, 0);
 			else if (col == "navy")
-				color = Color::html("#000080");
+				color = Color(0, 0, 0.5);
 			else if (col == "olive")
-				color = Color::html("#808000");
+				color = Color(0.5, 0.5, 0);
 			else if (col == "purple")
-				color = Color::html("#800080");
+				color = Color(0.5, 0, 0.5);
 			else if (col == "red")
-				color = Color::html("#FF0000");
+				color = Color(1, 0, 0);
 			else if (col == "silver")
-				color = Color::html("#C0C0C0");
+				color = Color(0.75, 0.75, 0.75);
 			else if (col == "teal")
-				color = Color::html("#008008");
+				color = Color(0, 0.5, 0.5);
 			else if (col == "white")
-				color = Color::html("#FFFFFF");
+				color = Color(1, 1, 1);
 			else if (col == "yellow")
-				color = Color::html("#FFFF00");
+				color = Color(1, 1, 0);
 			else
 				color = base_color;
 
@@ -1956,10 +2336,151 @@ Error RichTextLabel::append_bbcode(const String &p_bbcode) {
 			pos = brk_end + 1;
 			tag_stack.push_front("font");
 
-		} else {
+		} else if (bbcode == "fade") {
+			int startIndex = 0;
+			int length = 10;
 
-			add_text("["); //ignore
-			pos = brk_pos + 1;
+			if (split_tag_block.size() > 1) {
+				split_tag_block.remove(0);
+				for (int i = 0; i < split_tag_block.size(); i++) {
+					String expr = split_tag_block[i];
+					if (expr.begins_with("start=")) {
+						String start_str = expr.substr(6, expr.length());
+						startIndex = start_str.to_int();
+					} else if (expr.begins_with("length=")) {
+						String end_str = expr.substr(7, expr.length());
+						length = end_str.to_int();
+					}
+				}
+			}
+
+			push_fade(startIndex, length);
+			pos = brk_end + 1;
+			tag_stack.push_front("fade");
+		} else if (bbcode == "shake") {
+			int strength = 5;
+			float rate = 20.0f;
+
+			if (split_tag_block.size() > 1) {
+				split_tag_block.remove(0);
+				for (int i = 0; i < split_tag_block.size(); i++) {
+					String expr = split_tag_block[i];
+					if (expr.begins_with("level=")) {
+						String str_str = expr.substr(6, expr.length());
+						strength = str_str.to_int();
+					} else if (expr.begins_with("rate=")) {
+						String rate_str = expr.substr(5, expr.length());
+						rate = rate_str.to_float();
+					}
+				}
+			}
+
+			push_shake(strength, rate);
+			pos = brk_end + 1;
+			tag_stack.push_front("shake");
+			set_process_internal(true);
+		} else if (bbcode == "wave") {
+			float amplitude = 20.0f;
+			float period = 5.0f;
+
+			if (split_tag_block.size() > 1) {
+				split_tag_block.remove(0);
+				for (int i = 0; i < split_tag_block.size(); i++) {
+					String expr = split_tag_block[i];
+					if (expr.begins_with("amp=")) {
+						String amp_str = expr.substr(4, expr.length());
+						amplitude = amp_str.to_float();
+					} else if (expr.begins_with("freq=")) {
+						String period_str = expr.substr(5, expr.length());
+						period = period_str.to_float();
+					}
+				}
+			}
+
+			push_wave(period, amplitude);
+			pos = brk_end + 1;
+			tag_stack.push_front("wave");
+			set_process_internal(true);
+		} else if (bbcode == "tornado") {
+			float radius = 10.0f;
+			float frequency = 1.0f;
+
+			if (split_tag_block.size() > 1) {
+				split_tag_block.remove(0);
+				for (int i = 0; i < split_tag_block.size(); i++) {
+					String expr = split_tag_block[i];
+					if (expr.begins_with("radius=")) {
+						String amp_str = expr.substr(7, expr.length());
+						radius = amp_str.to_float();
+					} else if (expr.begins_with("freq=")) {
+						String period_str = expr.substr(5, expr.length());
+						frequency = period_str.to_float();
+					}
+				}
+			}
+
+			push_tornado(frequency, radius);
+			pos = brk_end + 1;
+			tag_stack.push_front("tornado");
+			set_process_internal(true);
+		} else if (bbcode == "rainbow") {
+			float saturation = 0.8f;
+			float value = 0.8f;
+			float frequency = 1.0f;
+
+			if (split_tag_block.size() > 1) {
+				split_tag_block.remove(0);
+				for (int i = 0; i < split_tag_block.size(); i++) {
+					String expr = split_tag_block[i];
+					if (expr.begins_with("sat=")) {
+						String sat_str = expr.substr(4, expr.length());
+						saturation = sat_str.to_float();
+					} else if (expr.begins_with("val=")) {
+						String val_str = expr.substr(4, expr.length());
+						value = val_str.to_float();
+					} else if (expr.begins_with("freq=")) {
+						String freq_str = expr.substr(5, expr.length());
+						frequency = freq_str.to_float();
+					}
+				}
+			}
+
+			push_rainbow(saturation, value, frequency);
+			pos = brk_end + 1;
+			tag_stack.push_front("rainbow");
+			set_process_internal(true);
+		} else {
+			Vector<String> &expr = split_tag_block;
+			if (expr.size() < 1) {
+				add_text("[");
+				pos = brk_pos + 1;
+			} else {
+				String identifier = expr[0];
+				expr.remove(0);
+				Dictionary properties = parse_expressions_for_values(expr);
+				Ref<RichTextEffect> effect = _get_custom_effect_by_code(identifier);
+
+				if (!effect.is_null()) {
+					push_customfx(effect, properties);
+					pos = brk_end + 1;
+					tag_stack.push_front(identifier);
+					set_process_internal(true);
+				} else {
+					add_text("["); //ignore
+					pos = brk_pos + 1;
+				}
+			}
+		}
+	}
+
+	Vector<ItemFX *> fx_items;
+	for (List<Item *>::Element *E = main->subitems.front(); E; E = E->next()) {
+		Item *subitem = static_cast<Item *>(E->get());
+		_fetch_item_fx_stack(subitem, fx_items);
+
+		if (fx_items.size()) {
+			set_process_internal(true);
+			break;
 		}
 	}
 
@@ -2004,7 +2525,7 @@ bool RichTextLabel::search(const String &p_string, bool p_from_selection, bool p
 	Item *it = main;
 	int charidx = 0;
 
-	if (p_from_selection && selection.active && selection.enabled) {
+	if (p_from_selection && selection.active) {
 		it = selection.to;
 		charidx = selection.to_char + 1;
 	}
@@ -2014,7 +2535,7 @@ bool RichTextLabel::search(const String &p_string, bool p_from_selection, bool p
 		if (it->type == ITEM_TEXT) {
 
 			ItemText *t = static_cast<ItemText *>(it);
-			int sp = t->text.find(p_string, charidx);
+			int sp = t->text.findn(p_string, charidx);
 			if (sp != -1) {
 				selection.from = it;
 				selection.from_char = sp;
@@ -2168,7 +2689,35 @@ float RichTextLabel::get_percent_visible() const {
 	return percent_visible;
 }
 
-int RichTextLabel::get_content_height() {
+void RichTextLabel::set_effects(const Vector<Variant> &effects) {
+	custom_effects.clear();
+	for (int i = 0; i < effects.size(); i++) {
+		Ref<RichTextEffect> effect = Ref<RichTextEffect>(effects[i]);
+		custom_effects.push_back(effect);
+	}
+
+	parse_bbcode(bbcode);
+}
+
+Vector<Variant> RichTextLabel::get_effects() {
+	Vector<Variant> r;
+	for (int i = 0; i < custom_effects.size(); i++) {
+		r.push_back(custom_effects[i].get_ref_ptr());
+	}
+	return r;
+}
+
+void RichTextLabel::install_effect(const Variant effect) {
+	Ref<RichTextEffect> rteffect;
+	rteffect = effect;
+
+	if (rteffect.is_valid()) {
+		custom_effects.push_back(effect);
+		parse_bbcode(bbcode);
+	}
+}
+
+int RichTextLabel::get_content_height() const {
 	int total_height = 0;
 	if (main->lines.size())
 		total_height = main->lines[main->lines.size() - 1].height_accum_cache + get_stylebox("normal")->get_minimum_size().height;
@@ -2182,10 +2731,15 @@ void RichTextLabel::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_text"), &RichTextLabel::get_text);
 	ClassDB::bind_method(D_METHOD("add_text", "text"), &RichTextLabel::add_text);
 	ClassDB::bind_method(D_METHOD("set_text", "text"), &RichTextLabel::set_text);
-	ClassDB::bind_method(D_METHOD("add_image", "image"), &RichTextLabel::add_image);
+	ClassDB::bind_method(D_METHOD("add_image", "image", "width", "height"), &RichTextLabel::add_image, DEFVAL(0), DEFVAL(0));
 	ClassDB::bind_method(D_METHOD("newline"), &RichTextLabel::add_newline);
 	ClassDB::bind_method(D_METHOD("remove_line", "line"), &RichTextLabel::remove_line);
 	ClassDB::bind_method(D_METHOD("push_font", "font"), &RichTextLabel::push_font);
+	ClassDB::bind_method(D_METHOD("push_normal"), &RichTextLabel::push_normal);
+	ClassDB::bind_method(D_METHOD("push_bold"), &RichTextLabel::push_bold);
+	ClassDB::bind_method(D_METHOD("push_bold_italics"), &RichTextLabel::push_bold_italics);
+	ClassDB::bind_method(D_METHOD("push_italics"), &RichTextLabel::push_italics);
+	ClassDB::bind_method(D_METHOD("push_mono"), &RichTextLabel::push_mono);
 	ClassDB::bind_method(D_METHOD("push_color", "color"), &RichTextLabel::push_color);
 	ClassDB::bind_method(D_METHOD("push_align", "align"), &RichTextLabel::push_align);
 	ClassDB::bind_method(D_METHOD("push_indent", "level"), &RichTextLabel::push_indent);
@@ -2219,6 +2773,9 @@ void RichTextLabel::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_tab_size", "spaces"), &RichTextLabel::set_tab_size);
 	ClassDB::bind_method(D_METHOD("get_tab_size"), &RichTextLabel::get_tab_size);
 
+	ClassDB::bind_method(D_METHOD("set_fit_content_height", "enabled"), &RichTextLabel::set_fit_content_height);
+	ClassDB::bind_method(D_METHOD("is_fit_content_height_enabled"), &RichTextLabel::is_fit_content_height_enabled);
+
 	ClassDB::bind_method(D_METHOD("set_selection_enabled", "enabled"), &RichTextLabel::set_selection_enabled);
 	ClassDB::bind_method(D_METHOD("is_selection_enabled"), &RichTextLabel::is_selection_enabled);
 
@@ -2244,6 +2801,12 @@ void RichTextLabel::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("get_content_height"), &RichTextLabel::get_content_height);
 
+	ClassDB::bind_method(D_METHOD("parse_expressions_for_values", "expressions"), &RichTextLabel::parse_expressions_for_values);
+
+	ClassDB::bind_method(D_METHOD("set_effects", "effects"), &RichTextLabel::set_effects);
+	ClassDB::bind_method(D_METHOD("get_effects"), &RichTextLabel::get_effects);
+	ClassDB::bind_method(D_METHOD("install_effect", "effect"), &RichTextLabel::install_effect);
+
 	ADD_GROUP("BBCode", "bbcode_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "bbcode_enabled"), "set_use_bbcode", "is_using_bbcode");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "bbcode_text", PROPERTY_HINT_MULTILINE_TEXT), "set_bbcode", "get_bbcode");
@@ -2255,11 +2818,15 @@ void RichTextLabel::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "tab_size", PROPERTY_HINT_RANGE, "0,24,1"), "set_tab_size", "get_tab_size");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "text", PROPERTY_HINT_MULTILINE_TEXT), "set_text", "get_text");
 
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "fit_content_height"), "set_fit_content_height", "is_fit_content_height_enabled");
+
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "scroll_active"), "set_scroll_active", "is_scroll_active");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "scroll_following"), "set_scroll_follow", "is_scroll_following");
 
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "selection_enabled"), "set_selection_enabled", "is_selection_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "override_selected_font_color"), "set_override_selected_font_color", "is_overriding_selected_font_color");
+
+	ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "custom_effects", PROPERTY_HINT_RESOURCE_TYPE, "17/17:RichTextEffect", (PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_SCRIPT_VARIABLE), "RichTextEffect"), "set_effects", "get_effects");
 
 	ADD_SIGNAL(MethodInfo("meta_clicked", PropertyInfo(Variant::NIL, "meta", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NIL_IS_VARIANT)));
 	ADD_SIGNAL(MethodInfo("meta_hover_started", PropertyInfo(Variant::NIL, "meta", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NIL_IS_VARIANT)));
@@ -2286,11 +2853,16 @@ void RichTextLabel::_bind_methods() {
 	BIND_ENUM_CONSTANT(ITEM_INDENT);
 	BIND_ENUM_CONSTANT(ITEM_LIST);
 	BIND_ENUM_CONSTANT(ITEM_TABLE);
+	BIND_ENUM_CONSTANT(ITEM_FADE);
+	BIND_ENUM_CONSTANT(ITEM_SHAKE);
+	BIND_ENUM_CONSTANT(ITEM_WAVE);
+	BIND_ENUM_CONSTANT(ITEM_TORNADO);
+	BIND_ENUM_CONSTANT(ITEM_RAINBOW);
+	BIND_ENUM_CONSTANT(ITEM_CUSTOMFX);
 	BIND_ENUM_CONSTANT(ITEM_META);
 }
 
 void RichTextLabel::set_visible_characters(int p_visible) {
-
 	visible_characters = p_visible;
 	update();
 }
@@ -2314,12 +2886,87 @@ void RichTextLabel::set_fixed_size_to_width(int p_width) {
 
 Size2 RichTextLabel::get_minimum_size() const {
 
+	Size2 size(0, 0);
 	if (fixed_width != -1) {
-		const_cast<RichTextLabel *>(this)->_validate_line_caches(main);
-		return Size2(fixed_width, const_cast<RichTextLabel *>(this)->get_content_height());
+		size.x = fixed_width;
 	}
 
-	return Size2();
+	if (fixed_width != -1 || fit_content_height) {
+		const_cast<RichTextLabel *>(this)->_validate_line_caches(main);
+		size.y = get_content_height();
+	}
+
+	return size;
+}
+
+Ref<RichTextEffect> RichTextLabel::_get_custom_effect_by_code(String p_bbcode_identifier) {
+	for (int i = 0; i < custom_effects.size(); i++) {
+		if (!custom_effects[i].is_valid())
+			continue;
+
+		if (custom_effects[i]->get_bbcode() == p_bbcode_identifier) {
+			return custom_effects[i];
+		}
+	}
+
+	return Ref<RichTextEffect>();
+}
+
+Dictionary RichTextLabel::parse_expressions_for_values(Vector<String> p_expressions) {
+	Dictionary d = Dictionary();
+	for (int i = 0; i < p_expressions.size(); i++) {
+		String expression = p_expressions[i];
+
+		Array a = Array();
+		Vector<String> parts = expression.split("=", true);
+		String key = parts[0];
+		if (parts.size() != 2) {
+			return d;
+		}
+
+		Vector<String> values = parts[1].split(",", false);
+
+		RegEx color;
+		color.compile("^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$");
+		RegEx nodepath;
+		nodepath.compile("^\\$");
+		RegEx boolean;
+		boolean.compile("^(true|false)$");
+		RegEx decimal;
+		decimal.compile("^-?^.?\\d+(\\.\\d+?)?$");
+		RegEx numerical;
+		numerical.compile("^\\d+$");
+
+		for (int j = 0; j < values.size(); j++) {
+			if (!color.search(values[j]).is_null()) {
+				a.append(Color::html(values[j]));
+			} else if (!nodepath.search(values[j]).is_null()) {
+				if (values[j].begins_with("$")) {
+					String v = values[j].substr(1, values[j].length());
+					a.append(NodePath(v));
+				}
+			} else if (!boolean.search(values[j]).is_null()) {
+				if (values[j] == "true") {
+					a.append(true);
+				} else if (values[j] == "false") {
+					a.append(false);
+				}
+			} else if (!decimal.search(values[j]).is_null()) {
+				a.append(values[j].to_double());
+			} else if (!numerical.search(values[j]).is_null()) {
+				a.append(values[j].to_int());
+			} else {
+				a.append(values[j]);
+			}
+		}
+
+		if (values.size() > 1) {
+			d[key] = a;
+		} else if (values.size() == 1) {
+			d[key] = a[0];
+		}
+	}
+	return d;
 }
 
 RichTextLabel::RichTextLabel() {
@@ -2334,6 +2981,7 @@ RichTextLabel::RichTextLabel() {
 	tab_size = 4;
 	default_align = ALIGN_LEFT;
 	underline_meta = true;
+	meta_hovering = NULL;
 	override_selected_font_color = false;
 
 	scroll_visible = false;
@@ -2366,6 +3014,8 @@ RichTextLabel::RichTextLabel() {
 	visible_line_count = 0;
 
 	fixed_width = -1;
+	fit_content_height = false;
+
 	set_clip_contents(true);
 }
 

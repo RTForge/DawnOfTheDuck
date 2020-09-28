@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -60,6 +60,7 @@ public:
 	virtual void environment_set_bg_energy(RID p_env, float p_energy) = 0;
 	virtual void environment_set_canvas_max_layer(RID p_env, int p_max_layer) = 0;
 	virtual void environment_set_ambient_light(RID p_env, const Color &p_color, float p_energy = 1.0, float p_sky_contribution = 0.0) = 0;
+	virtual void environment_set_camera_feed_id(RID p_env, int p_camera_feed_id) = 0;
 
 	virtual void environment_set_dof_blur_near(RID p_env, bool p_enable, float p_distance, float p_transition, float p_far_amount, VS::EnvironmentDOFBlurQuality p_quality) = 0;
 	virtual void environment_set_dof_blur_far(RID p_env, bool p_enable, float p_distance, float p_transition, float p_far_amount, VS::EnvironmentDOFBlurQuality p_quality) = 0;
@@ -204,6 +205,7 @@ public:
 	virtual uint32_t texture_get_height(RID p_texture) const = 0;
 	virtual uint32_t texture_get_depth(RID p_texture) const = 0;
 	virtual void texture_set_size_override(RID p_texture, int p_width, int p_height, int p_depth_3d) = 0;
+	virtual void texture_bind(RID p_texture, uint32_t p_texture_no) = 0;
 
 	virtual void texture_set_path(RID p_texture, const String &p_path) = 0;
 	virtual String texture_get_path(RID p_texture) const = 0;
@@ -239,6 +241,10 @@ public:
 
 	virtual void shader_set_default_texture_param(RID p_shader, const StringName &p_name, RID p_texture) = 0;
 	virtual RID shader_get_default_texture_param(RID p_shader, const StringName &p_name) const = 0;
+
+	virtual void shader_add_custom_define(RID p_shader, const String &p_define) = 0;
+	virtual void shader_get_custom_defines(RID p_shader, Vector<String> *p_defines) const = 0;
+	virtual void shader_remove_custom_define(RID p_shader, const String &p_define) = 0;
 
 	/* COMMON MATERIAL API */
 
@@ -355,7 +361,6 @@ public:
 	virtual void skeleton_bone_set_transform_2d(RID p_skeleton, int p_bone, const Transform2D &p_transform) = 0;
 	virtual Transform2D skeleton_bone_get_transform_2d(RID p_skeleton, int p_bone) const = 0;
 	virtual void skeleton_set_base_transform_2d(RID p_skeleton, const Transform2D &p_base_transform) = 0;
-	virtual void skeleton_set_world_transform(RID p_skeleton, bool p_enable, const Transform &p_world_transform) = 0;
 
 	/* Light API */
 
@@ -373,6 +378,7 @@ public:
 	virtual void light_set_negative(RID p_light, bool p_enable) = 0;
 	virtual void light_set_cull_mask(RID p_light, uint32_t p_mask) = 0;
 	virtual void light_set_reverse_cull_face_mode(RID p_light, bool p_enabled) = 0;
+	virtual void light_set_use_gi(RID p_light, bool p_enable) = 0;
 
 	virtual void light_omni_set_shadow_mode(RID p_light, VS::LightOmniShadowMode p_mode) = 0;
 	virtual void light_omni_set_shadow_detail(RID p_light, VS::LightOmniShadowDetail p_detail) = 0;
@@ -392,6 +398,7 @@ public:
 	virtual AABB light_get_aabb(RID p_light) const = 0;
 	virtual float light_get_param(RID p_light, VS::LightParam p_param) = 0;
 	virtual Color light_get_color(RID p_light) = 0;
+	virtual bool light_get_use_gi(RID p_light) = 0;
 	virtual uint64_t light_get_version(RID p_light) const = 0;
 
 	/* PROBE API */
@@ -548,12 +555,15 @@ public:
 		RENDER_TARGET_NO_SAMPLING,
 		RENDER_TARGET_HDR,
 		RENDER_TARGET_KEEP_3D_LINEAR,
+		RENDER_TARGET_DIRECT_TO_SCREEN,
 		RENDER_TARGET_FLAG_MAX
 	};
 
 	virtual RID render_target_create() = 0;
+	virtual void render_target_set_position(RID p_render_target, int p_x, int p_y) = 0;
 	virtual void render_target_set_size(RID p_render_target, int p_width, int p_height) = 0;
 	virtual RID render_target_get_texture(RID p_render_target) const = 0;
+	virtual void render_target_set_external_texture(RID p_render_target, unsigned int p_texture_id) = 0;
 	virtual void render_target_set_flag(RID p_render_target, RenderTargetFlags p_flag, bool p_value) = 0;
 	virtual bool render_target_was_used(RID p_render_target) = 0;
 	virtual void render_target_clear_used(RID p_render_target) = 0;
@@ -582,6 +592,8 @@ public:
 	virtual int get_captured_render_info(VS::RenderInfo p_info) = 0;
 
 	virtual int get_render_info(VS::RenderInfo p_info) = 0;
+	virtual String get_video_adapter_name() const = 0;
+	virtual String get_video_adapter_vendor() const = 0;
 
 	static RasterizerStorage *base_singleton;
 	RasterizerStorage();
@@ -653,7 +665,7 @@ public:
 			item_mask = 1;
 			scale = 1.0;
 			energy = 1.0;
-			item_shadow_mask = -1;
+			item_shadow_mask = 1;
 			mode = VS::CANVAS_LIGHT_MODE_ADD;
 			texture_cache = NULL;
 			next_ptr = NULL;
@@ -776,6 +788,7 @@ public:
 			RID normal_map;
 			int count;
 			bool antialiased;
+			bool antialiasing_use_indices;
 
 			CommandPolygon() {
 				type = TYPE_POLYGON;
@@ -788,6 +801,8 @@ public:
 			RID mesh;
 			RID texture;
 			RID normal_map;
+			Transform2D transform;
+			Color modulate;
 			CommandMesh() { type = TYPE_MESH; }
 		};
 
@@ -954,6 +969,56 @@ public:
 						for (int j = 1; j < l; j++) {
 							r.expand_to(pp[j]);
 						}
+
+						if (skeleton != RID()) {
+
+							// calculate bone AABBs
+							int bone_count = RasterizerStorage::base_singleton->skeleton_get_bone_count(skeleton);
+
+							Vector<Rect2> bone_aabbs;
+							bone_aabbs.resize(bone_count);
+							Rect2 *bptr = bone_aabbs.ptrw();
+
+							for (int j = 0; j < bone_count; j++) {
+								bptr[j].size = Vector2(-1, -1); //negative means unused
+							}
+							if (l && polygon->bones.size() == l * 4 && polygon->weights.size() == polygon->bones.size()) {
+
+								for (int j = 0; j < l; j++) {
+									Point2 p = pp[j];
+									for (int k = 0; k < 4; k++) {
+										int idx = polygon->bones[j * 4 + k];
+										float w = polygon->weights[j * 4 + k];
+										if (w == 0)
+											continue;
+
+										if (bptr[idx].size.x < 0) {
+											//first
+											bptr[idx] = Rect2(p, Vector2(0.00001, 0.00001));
+										} else {
+											bptr[idx].expand_to(p);
+										}
+									}
+								}
+
+								Rect2 aabb;
+								bool first_bone = true;
+								for (int j = 0; j < bone_count; j++) {
+									Transform2D mtx = RasterizerStorage::base_singleton->skeleton_bone_get_transform_2d(skeleton, j);
+									Rect2 baabb = mtx.xform(bone_aabbs[j]);
+
+									if (first_bone) {
+										aabb = baabb;
+										first_bone = false;
+									} else {
+										aabb = aabb.merge(baabb);
+									}
+								}
+
+								r = r.merge(aabb);
+							}
+						}
+
 					} break;
 					case Item::Command::TYPE_MESH: {
 
@@ -1051,6 +1116,8 @@ public:
 	virtual void canvas_begin() = 0;
 	virtual void canvas_end() = 0;
 
+	virtual void canvas_render_items_begin(const Color &p_modulate, Light *p_light, const Transform2D &p_base_transform) {}
+	virtual void canvas_render_items_end() {}
 	virtual void canvas_render_items(Item *p_item_list, int p_z, const Color &p_modulate, Light *p_light, const Transform2D &p_base_transform) = 0;
 	virtual void canvas_debug_viewport_shadows(Light *p_lights_with_shadow) = 0;
 
@@ -1096,12 +1163,13 @@ public:
 	virtual RasterizerCanvas *get_canvas() = 0;
 	virtual RasterizerScene *get_scene() = 0;
 
-	virtual void set_boot_image(const Ref<Image> &p_image, const Color &p_color, bool p_scale) = 0;
+	virtual void set_boot_image(const Ref<Image> &p_image, const Color &p_color, bool p_scale, bool p_use_filter = true) = 0;
+	virtual void set_shader_time_scale(float p_scale) = 0;
 
 	virtual void initialize() = 0;
 	virtual void begin_frame(double frame_step) = 0;
 	virtual void set_current_render_target(RID p_render_target) = 0;
-	virtual void restore_render_target() = 0;
+	virtual void restore_render_target(bool p_3d) = 0;
 	virtual void clear_render_target(const Color &p_color) = 0;
 	virtual void blit_render_target_to_screen(RID p_render_target, const Rect2 &p_screen_rect, int p_screen = 0) = 0;
 	virtual void output_lens_distorted_to_screen(RID p_render_target, const Rect2 &p_screen_rect, float p_k1, float p_k2, const Vector2 &p_eye_center, float p_oversample) = 0;

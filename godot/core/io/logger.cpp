@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -39,7 +39,7 @@
 // va_copy, otherwise you have to use the internal version (__va_copy).
 #if !defined(va_copy)
 #if defined(__GNUC__)
-#define va_copy(d, s) __va_copy(d, s)
+#define va_copy(d, s) __va_copy((d), (s))
 #else
 #define va_copy(d, s) ((d) = (s))
 #endif
@@ -154,7 +154,7 @@ void RotatedFileLogger::rotate_file() {
 			char timestamp[21];
 			OS::Date date = OS::get_singleton()->get_date();
 			OS::Time time = OS::get_singleton()->get_time();
-			sprintf(timestamp, "-%04d-%02d-%02d-%02d-%02d-%02d", date.year, date.month, date.day, time.hour, time.min, time.sec);
+			sprintf(timestamp, "_%04d-%02d-%02d_%02d-%02d-%02d", date.year, date.month, date.day, time.hour, time.min, time.sec);
 
 			String backup_name = base_path.get_basename() + timestamp;
 			if (base_path.get_extension() != String()) {

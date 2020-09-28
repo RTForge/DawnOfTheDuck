@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,11 +30,45 @@
 
 #include "test_oa_hash_map.h"
 
+#include "core/oa_hash_map.h"
 #include "core/os/os.h"
 
-#include "core/oa_hash_map.h"
-
 namespace TestOAHashMap {
+
+struct CountedItem {
+	static int count;
+
+	int id;
+	bool destroyed;
+
+	CountedItem() :
+			id(-1),
+			destroyed(false) {
+		count++;
+	}
+
+	CountedItem(int p_id) :
+			id(p_id),
+			destroyed(false) {
+		count++;
+	}
+
+	CountedItem(const CountedItem &p_other) :
+			id(p_other.id),
+			destroyed(false) {
+		count++;
+	}
+
+	CountedItem &operator=(const CountedItem &p_other) = default;
+
+	~CountedItem() {
+		CRASH_COND(destroyed);
+		count--;
+		destroyed = true;
+	}
+};
+
+int CountedItem::count;
 
 MainLoop *test() {
 
@@ -119,6 +153,65 @@ MainLoop *test() {
 		}
 
 		delete[] keys;
+	}
+
+	// regression test / test for issue related to #31402
+	{
+
+		OS::get_singleton()->print("test for issue #31402 started...\n");
+
+		const int num_test_values = 12;
+		int test_values[num_test_values] = { 0, 24, 48, 72, 96, 120, 144, 168, 192, 216, 240, 264 };
+
+		int dummy = 0;
+		OAHashMap<int, int> map;
+		map.clear();
+
+		for (int i = 0; i < num_test_values; ++i) {
+			map.set(test_values[i], dummy);
+		}
+
+		OS::get_singleton()->print("test for issue #31402 passed.\n");
+	}
+
+	// test collision resolution, should not crash or run indefinitely
+	{
+		OAHashMap<int, int> map(4);
+		map.set(1, 1);
+		map.set(5, 1);
+		map.set(9, 1);
+		map.set(13, 1);
+		map.remove(5);
+		map.remove(9);
+		map.remove(13);
+		map.set(5, 1);
+	}
+
+	// test memory management of items, should not crash or leak items
+	{
+		// Exercise different patterns of removal
+		for (int i = 0; i < 4; ++i) {
+			{
+				OAHashMap<String, CountedItem> map;
+				int id = 0;
+				for (int j = 0; j < 100; ++j) {
+					map.insert(itos(j), CountedItem(id));
+				}
+				if (i <= 1) {
+					for (int j = 0; j < 100; ++j) {
+						map.remove(itos(j));
+					}
+				}
+				if (i % 2 == 0) {
+					map.clear();
+				}
+			}
+
+			if (CountedItem::count != 0) {
+				OS::get_singleton()->print("%d != 0 (not performing the other test sub-cases, breaking...)\n", CountedItem::count);
+				break;
+			}
+		}
 	}
 
 	return NULL;

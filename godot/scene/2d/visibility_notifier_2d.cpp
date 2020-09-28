@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -37,6 +37,16 @@
 #include "scene/animation/animation_player.h"
 #include "scene/main/viewport.h"
 #include "scene/scene_string_names.h"
+
+#ifdef TOOLS_ENABLED
+Rect2 VisibilityNotifier2D::_edit_get_rect() const {
+	return rect;
+}
+
+bool VisibilityNotifier2D::_edit_use_rect() const {
+	return true;
+}
+#endif
 
 void VisibilityNotifier2D::_enter_viewport(Viewport *p_viewport) {
 
@@ -82,15 +92,6 @@ void VisibilityNotifier2D::set_rect(const Rect2 &p_rect) {
 	}
 
 	_change_notify("rect");
-}
-
-Rect2 VisibilityNotifier2D::_edit_get_rect() const {
-
-	return rect;
-}
-
-bool VisibilityNotifier2D::_edit_use_rect() const {
-	return true;
 }
 
 Rect2 VisibilityNotifier2D::get_rect() const {
@@ -187,8 +188,7 @@ void VisibilityEnabler2D::_find_nodes(Node *p_node) {
 	bool add = false;
 	Variant meta;
 
-	if (enabler[ENABLER_FREEZE_BODIES]) {
-
+	{
 		RigidBody2D *rb2d = Object::cast_to<RigidBody2D>(p_node);
 		if (rb2d && ((rb2d->get_mode() == RigidBody2D::MODE_CHARACTER || rb2d->get_mode() == RigidBody2D::MODE_RIGID))) {
 
@@ -197,24 +197,21 @@ void VisibilityEnabler2D::_find_nodes(Node *p_node) {
 		}
 	}
 
-	if (enabler[ENABLER_PAUSE_ANIMATIONS]) {
-
+	{
 		AnimationPlayer *ap = Object::cast_to<AnimationPlayer>(p_node);
 		if (ap) {
 			add = true;
 		}
 	}
 
-	if (enabler[ENABLER_PAUSE_ANIMATED_SPRITES]) {
-
+	{
 		AnimatedSprite *as = Object::cast_to<AnimatedSprite>(p_node);
 		if (as) {
 			add = true;
 		}
 	}
 
-	if (enabler[ENABLER_PAUSE_PARTICLES]) {
-
+	{
 		Particles2D *ps = Object::cast_to<Particles2D>(p_node);
 		if (ps) {
 			add = true;
@@ -251,10 +248,19 @@ void VisibilityEnabler2D::_notification(int p_what) {
 
 		_find_nodes(from);
 
-		if (enabler[ENABLER_PARENT_PHYSICS_PROCESS] && get_parent())
-			get_parent()->set_physics_process(false);
-		if (enabler[ENABLER_PARENT_PROCESS] && get_parent())
-			get_parent()->set_process(false);
+		// We need to defer the call of set_process and set_physics_process,
+		// otherwise they are overwritten inside NOTIFICATION_READY.
+		// We can't use call_deferred, because it happens after a physics frame.
+		// The ready signal works as it's emitted immediately after NOTIFICATION_READY.
+
+		if (enabler[ENABLER_PARENT_PHYSICS_PROCESS] && get_parent()) {
+			get_parent()->connect(SceneStringNames::get_singleton()->ready,
+					get_parent(), "set_physics_process", varray(false), CONNECT_ONESHOT);
+		}
+		if (enabler[ENABLER_PARENT_PROCESS] && get_parent()) {
+			get_parent()->connect(SceneStringNames::get_singleton()->ready,
+					get_parent(), "set_process", varray(false), CONNECT_ONESHOT);
+		}
 	}
 
 	if (p_what == NOTIFICATION_EXIT_TREE) {
@@ -277,7 +283,7 @@ void VisibilityEnabler2D::_change_node_state(Node *p_node, bool p_enabled) {
 
 	ERR_FAIL_COND(!nodes.has(p_node));
 
-	{
+	if (enabler[ENABLER_FREEZE_BODIES]) {
 		RigidBody2D *rb = Object::cast_to<RigidBody2D>(p_node);
 		if (rb) {
 
@@ -285,7 +291,7 @@ void VisibilityEnabler2D::_change_node_state(Node *p_node, bool p_enabled) {
 		}
 	}
 
-	{
+	if (enabler[ENABLER_PAUSE_ANIMATIONS]) {
 		AnimationPlayer *ap = Object::cast_to<AnimationPlayer>(p_node);
 
 		if (ap) {
@@ -293,7 +299,8 @@ void VisibilityEnabler2D::_change_node_state(Node *p_node, bool p_enabled) {
 			ap->set_active(p_enabled);
 		}
 	}
-	{
+
+	if (enabler[ENABLER_PAUSE_ANIMATED_SPRITES]) {
 		AnimatedSprite *as = Object::cast_to<AnimatedSprite>(p_node);
 
 		if (as) {
@@ -305,7 +312,7 @@ void VisibilityEnabler2D::_change_node_state(Node *p_node, bool p_enabled) {
 		}
 	}
 
-	{
+	if (enabler[ENABLER_PAUSE_PARTICLES]) {
 		Particles2D *ps = Object::cast_to<Particles2D>(p_node);
 
 		if (ps) {
@@ -319,15 +326,13 @@ void VisibilityEnabler2D::_node_removed(Node *p_node) {
 
 	if (!visible)
 		_change_node_state(p_node, true);
-	//changed to one shot, not needed
-	//p_node->disconnect(SceneStringNames::get_singleton()->exit_scene,this,"_node_removed");
 	nodes.erase(p_node);
 }
 
 String VisibilityEnabler2D::get_configuration_warning() const {
 #ifdef TOOLS_ENABLED
 	if (is_inside_tree() && get_parent() && (get_parent()->get_filename() == String() && get_parent() != get_tree()->get_edited_scene_root())) {
-		return TTR("VisibilityEnable2D works best when used with the edited scene root directly as parent.");
+		return TTR("VisibilityEnabler2D works best when used with the edited scene root directly as parent.");
 	}
 #endif
 	return String();

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -91,7 +91,6 @@ void BoxContainer::_resort() {
 	int stretch_diff = stretch_max - stretch_min;
 	if (stretch_diff < 0) {
 		//avoid negative stretch space
-		stretch_max = stretch_min;
 		stretch_diff = 0;
 	}
 
@@ -104,6 +103,7 @@ void BoxContainer::_resort() {
 
 		has_stretched = true;
 		bool refit_successful = true; //assume refit-test will go well
+		float error = 0; // Keep track of accumulated error in pixels
 
 		for (int i = 0; i < get_child_count(); i++) {
 
@@ -118,8 +118,9 @@ void BoxContainer::_resort() {
 
 			if (msc.will_stretch) { //wants to stretch
 				//let's see if it can really stretch
-
-				int final_pixel_size = stretch_avail * c->get_stretch_ratio() / stretch_ratio_total;
+				float final_pixel_size = stretch_avail * c->get_stretch_ratio() / stretch_ratio_total;
+				// Add leftover fractional pixels to error accumulator
+				error += final_pixel_size - (int)final_pixel_size;
 				if (final_pixel_size < msc.min_size) {
 					//if available stretching area is too small for widget,
 					//then remove it from stretching area
@@ -131,6 +132,11 @@ void BoxContainer::_resort() {
 					break;
 				} else {
 					msc.final_size = final_pixel_size;
+					// Dump accumulated error if one pixel or more
+					if (error >= 1) {
+						msc.final_size += 1;
+						error -= 1;
+					}
 				}
 			}
 		}

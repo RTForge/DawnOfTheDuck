@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -807,6 +807,9 @@ void Generic6DOFJoint::_bind_methods() {
 	BIND_ENUM_CONSTANT(PARAM_LINEAR_DAMPING);
 	BIND_ENUM_CONSTANT(PARAM_LINEAR_MOTOR_TARGET_VELOCITY);
 	BIND_ENUM_CONSTANT(PARAM_LINEAR_MOTOR_FORCE_LIMIT);
+	BIND_ENUM_CONSTANT(PARAM_LINEAR_SPRING_STIFFNESS);
+	BIND_ENUM_CONSTANT(PARAM_LINEAR_SPRING_DAMPING);
+	BIND_ENUM_CONSTANT(PARAM_LINEAR_SPRING_EQUILIBRIUM_POINT);
 	BIND_ENUM_CONSTANT(PARAM_ANGULAR_LOWER_LIMIT);
 	BIND_ENUM_CONSTANT(PARAM_ANGULAR_UPPER_LIMIT);
 	BIND_ENUM_CONSTANT(PARAM_ANGULAR_LIMIT_SOFTNESS);
@@ -816,6 +819,9 @@ void Generic6DOFJoint::_bind_methods() {
 	BIND_ENUM_CONSTANT(PARAM_ANGULAR_ERP);
 	BIND_ENUM_CONSTANT(PARAM_ANGULAR_MOTOR_TARGET_VELOCITY);
 	BIND_ENUM_CONSTANT(PARAM_ANGULAR_MOTOR_FORCE_LIMIT);
+	BIND_ENUM_CONSTANT(PARAM_ANGULAR_SPRING_STIFFNESS);
+	BIND_ENUM_CONSTANT(PARAM_ANGULAR_SPRING_DAMPING);
+	BIND_ENUM_CONSTANT(PARAM_ANGULAR_SPRING_EQUILIBRIUM_POINT);
 	BIND_ENUM_CONSTANT(PARAM_MAX);
 
 	BIND_ENUM_CONSTANT(FLAG_ENABLE_LINEAR_LIMIT);

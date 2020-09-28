@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -29,6 +29,7 @@
 /*************************************************************************/
 
 #include "mono_reg_utils.h"
+#include "core/os/dir_access.h"
 
 #ifdef WINDOWS_ENABLED
 
@@ -76,7 +77,6 @@ LONG _RegKeyQueryString(HKEY hKey, const String &p_value_name, String &r_value) 
 
 	if (res == ERROR_MORE_DATA) {
 		// dwBufferSize now contains the actual size
-		Vector<WCHAR> buffer;
 		buffer.resize(dwBufferSize);
 		res = RegQueryValueExW(hKey, p_value_name.c_str(), 0, NULL, (LPBYTE)buffer.ptr(), &dwBufferSize);
 	}
@@ -200,6 +200,13 @@ String find_msbuild_tools_path() {
 						val += "\\";
 					}
 
+					// Since VS2019, the directory is simply named "Current"
+					String msbuild_dir = val + "MSBuild\\Current\\Bin";
+					if (DirAccess::exists(msbuild_dir)) {
+						return msbuild_dir;
+					}
+
+					// Directory name "15.0" is used in VS 2017
 					return val + "MSBuild\\15.0\\Bin";
 				}
 			}

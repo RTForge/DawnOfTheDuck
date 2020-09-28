@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -64,15 +64,6 @@ class InputDefault : public Input {
 	bool emulate_mouse_from_touch;
 
 	int mouse_from_touch_index;
-
-	struct VibrationInfo {
-		float weak_magnitude;
-		float strong_magnitude;
-		float duration; // Duration in seconds
-		uint64_t timestamp;
-	};
-
-	Map<int, VibrationInfo> joy_vibration;
 
 	struct SpeedTrack {
 
@@ -157,26 +148,61 @@ private:
 		TYPE_MAX,
 	};
 
+	enum JoyAxisRange {
+		NEGATIVE_HALF_AXIS = -1,
+		FULL_AXIS = 0,
+		POSITIVE_HALF_AXIS = 1
+	};
+
 	struct JoyEvent {
 		int type;
 		int index;
-		int value;
+		float value;
+	};
+
+	struct JoyBinding {
+		JoyType inputType;
+		union {
+			int button;
+
+			struct {
+				int axis;
+				JoyAxisRange range;
+				bool invert;
+			} axis;
+
+			struct {
+				int hat;
+				HatMask hat_mask;
+			} hat;
+
+		} input;
+
+		JoyType outputType;
+		union {
+			JoystickList button;
+
+			struct {
+				JoystickList axis;
+				JoyAxisRange range;
+			} axis;
+
+		} output;
 	};
 
 	struct JoyDeviceMapping {
-
 		String uid;
 		String name;
-		Map<int, JoyEvent> buttons;
-		Map<int, JoyEvent> axis;
-		JoyEvent hat[HAT_MAX];
+		Vector<JoyBinding> bindings;
 	};
-
-	JoyEvent hat_map_default[HAT_MAX];
 
 	Vector<JoyDeviceMapping> map_db;
 
-	JoyEvent _find_to_event(String p_to);
+	JoyEvent _get_mapped_button_event(const JoyDeviceMapping &mapping, int p_button);
+	JoyEvent _get_mapped_axis_event(const JoyDeviceMapping &mapping, int p_axis, const JoyAxis &p_value);
+	void _get_mapped_hat_events(const JoyDeviceMapping &mapping, int p_hat, JoyEvent r_events[HAT_MAX]);
+	JoystickList _get_output_button(String output);
+	JoystickList _get_output_axis(String output);
 	void _button_event(int p_device, int p_index, bool p_pressed);
 	void _axis_event(int p_device, int p_axis, float p_value);
 	float _handle_deadzone(int p_device, int p_axis, float p_value);
@@ -185,6 +211,16 @@ private:
 
 	List<Ref<InputEvent> > accumulated_events;
 	bool use_accumulated_input;
+
+protected:
+	struct VibrationInfo {
+		float weak_magnitude;
+		float strong_magnitude;
+		float duration; // Duration in seconds
+		uint64_t timestamp;
+	};
+
+	Map<int, VibrationInfo> joy_vibration;
 
 public:
 	virtual bool is_key_pressed(int p_scancode) const;
@@ -226,6 +262,7 @@ public:
 
 	virtual void start_joy_vibration(int p_device, float p_weak_magnitude, float p_strong_magnitude, float p_duration = 0);
 	virtual void stop_joy_vibration(int p_device);
+	virtual void vibrate_handheld(int p_duration_ms = 500);
 
 	void set_main_loop(MainLoop *p_main_loop);
 	void set_mouse_position(const Point2 &p_posf);
@@ -242,10 +279,10 @@ public:
 	void set_emulate_mouse_from_touch(bool p_emulate);
 	virtual bool is_emulating_mouse_from_touch() const;
 
-	virtual CursorShape get_default_cursor_shape();
+	virtual CursorShape get_default_cursor_shape() const;
 	virtual void set_default_cursor_shape(CursorShape p_shape);
+	virtual CursorShape get_current_cursor_shape() const;
 	virtual void set_custom_mouse_cursor(const RES &p_cursor, CursorShape p_shape = Input::CURSOR_ARROW, const Vector2 &p_hotspot = Vector2());
-	virtual void set_mouse_in_window(bool p_in_window);
 
 	void parse_mapping(String p_mapping);
 	void joy_button(int p_device, int p_button, bool p_pressed);
@@ -272,6 +309,7 @@ public:
 	virtual void flush_accumulated_events();
 	virtual void set_use_accumulated_input(bool p_enable);
 
+	virtual void release_pressed_events();
 	InputDefault();
 };
 

@@ -1,15 +1,14 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<class name="SpriteFrames" inherits="Resource" category="Core" version="3.1">
+<class name="SpriteFrames" inherits="Resource" version="3.2">
 	<brief_description>
 		Sprite frame library for AnimatedSprite.
 	</brief_description>
 	<description>
 		Sprite frame library for [AnimatedSprite]. Contains frames and animation data for playback.
+		[b]Note:[/b] You can associate a set of normal maps by creating additional [SpriteFrames] resources with a [code]_normal[/code] suffix. For example, having 2 [SpriteFrames] resources [code]run[/code] and [code]run_normal[/code] will make it so the [code]run[/code] animation uses the normal map.
 	</description>
 	<tutorials>
 	</tutorials>
-	<demos>
-	</demos>
 	<methods>
 		<method name="add_animation">
 			<return type="void">
@@ -172,6 +171,7 @@
 	</methods>
 	<members>
 		<member name="frames" type="Array" setter="_set_frames" getter="_get_frames">
+			Compatibility property, always equals to an empty array.
 		</member>
 	</members>
 	<constants>

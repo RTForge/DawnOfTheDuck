@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -28,10 +28,10 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 
-#ifdef PULSEAUDIO_ENABLED
-
 #ifndef AUDIO_DRIVER_PULSEAUDIO_H
 #define AUDIO_DRIVER_PULSEAUDIO_H
+
+#ifdef PULSEAUDIO_ENABLED
 
 #include "core/os/mutex.h"
 #include "core/os/thread.h"
@@ -125,6 +125,6 @@ public:
 	~AudioDriverPulseAudio();
 };
 
-#endif // AUDIO_DRIVER_PULSEAUDIO_H
-
 #endif // PULSEAUDIO_ENABLED
+
+#endif // AUDIO_DRIVER_PULSEAUDIO_H
