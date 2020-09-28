@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -107,22 +107,31 @@ Error ImageLoaderTinyEXR::load_image(Ref<Image> p_image, FileAccess *f, bool p_f
 		}
 	}
 
-	if (idxR == -1) {
-		ERR_PRINT("TinyEXR: R channel not found.");
-		// @todo { free exr_image }
-		return ERR_FILE_CORRUPT;
-	}
+	if (exr_header.num_channels == 1) {
+		// Grayscale channel only.
+		idxR = 0;
+		idxG = 0;
+		idxB = 0;
+		idxA = 0;
+	} else {
+		// Assume RGB(A)
+		if (idxR == -1) {
+			ERR_PRINT("TinyEXR: R channel not found.");
+			// @todo { free exr_image }
+			return ERR_FILE_CORRUPT;
+		}
 
-	if (idxG == -1) {
-		ERR_PRINT("TinyEXR: G channel not found.")
-		// @todo { free exr_image }
-		return ERR_FILE_CORRUPT;
-	}
+		if (idxG == -1) {
+			ERR_PRINT("TinyEXR: G channel not found.");
+			// @todo { free exr_image }
+			return ERR_FILE_CORRUPT;
+		}
 
-	if (idxB == -1) {
-		ERR_PRINT("TinyEXR: B channel not found.")
-		// @todo { free exr_image }
-		return ERR_FILE_CORRUPT;
+		if (idxB == -1) {
+			ERR_PRINT("TinyEXR: B channel not found.");
+			// @todo { free exr_image }
+			return ERR_FILE_CORRUPT;
+		}
 	}
 
 	// EXR image data loaded, now parse it into Godot-friendly image data
@@ -226,7 +235,7 @@ Error ImageLoaderTinyEXR::load_image(Ref<Image> p_image, FileAccess *f, bool p_f
 
 	p_image->create(exr_image.width, exr_image.height, false, format, imgdata);
 
-	w = PoolVector<uint8_t>::Write();
+	w.release();
 
 	FreeEXRHeader(&exr_header);
 	FreeEXRImage(&exr_image);

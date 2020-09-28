@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -44,7 +44,8 @@ struct EditorProgress;
 
 class EditorExportPreset : public Reference {
 
-	GDCLASS(EditorExportPreset, Reference)
+	GDCLASS(EditorExportPreset, Reference);
+
 public:
 	enum ExportFilter {
 		EXPORT_ALL_RESOURCES,
@@ -93,6 +94,8 @@ public:
 	Ref<EditorExportPlatform> get_platform() const;
 
 	bool has(const StringName &p_property) const { return values.has(p_property); }
+
+	void update_files_to_export();
 
 	Vector<String> get_files_to_export() const;
 
@@ -152,7 +155,7 @@ struct SharedObject {
 
 class EditorExportPlatform : public Reference {
 
-	GDCLASS(EditorExportPlatform, Reference)
+	GDCLASS(EditorExportPlatform, Reference);
 
 public:
 	typedef Error (*EditorExportSaveFunction)(void *p_userdata, const String &p_path, const Vector<uint8_t> &p_data, int p_file, int p_total);
@@ -231,6 +234,7 @@ public:
 	virtual Ref<EditorExportPreset> create_preset();
 
 	virtual void get_export_options(List<ExportOption> *r_options) = 0;
+	virtual bool should_update_export_options() { return false; }
 	virtual bool get_option_visibility(const String &p_option, const Map<StringName, Variant> &p_options) const { return true; }
 
 	virtual String get_os_name() const = 0;
@@ -239,13 +243,15 @@ public:
 
 	Error export_project_files(const Ref<EditorExportPreset> &p_preset, EditorExportSaveFunction p_func, void *p_udata, EditorExportSaveSharedObject p_so_func = NULL);
 
-	Error save_pack(const Ref<EditorExportPreset> &p_preset, const String &p_path, Vector<SharedObject> *p_so_files = NULL);
+	Error save_pack(const Ref<EditorExportPreset> &p_preset, const String &p_path, Vector<SharedObject> *p_so_files = NULL, bool p_embed = false, int64_t *r_embedded_start = NULL, int64_t *r_embedded_size = NULL);
 	Error save_zip(const Ref<EditorExportPreset> &p_preset, const String &p_path);
 
-	virtual bool poll_devices() { return false; }
-	virtual int get_device_count() const { return 0; }
-	virtual String get_device_name(int p_device) const { return ""; }
-	virtual String get_device_info(int p_device) const { return ""; }
+	virtual bool poll_export() { return false; }
+	virtual int get_options_count() const { return 0; }
+	virtual String get_options_tooltip() const { return ""; }
+	virtual Ref<ImageTexture> get_option_icon(int p_index) const;
+	virtual String get_option_label(int p_device) const { return ""; }
+	virtual String get_option_tooltip(int p_device) const { return ""; }
 
 	enum DebugFlags {
 		DEBUG_FLAG_DUMB_CLIENT = 1,
@@ -272,7 +278,7 @@ public:
 };
 
 class EditorExportPlugin : public Reference {
-	GDCLASS(EditorExportPlugin, Reference)
+	GDCLASS(EditorExportPlugin, Reference);
 
 	friend class EditorExportPlatform;
 
@@ -288,6 +294,8 @@ class EditorExportPlugin : public Reference {
 	bool skipped;
 
 	Vector<String> ios_frameworks;
+	Vector<String> ios_embedded_frameworks;
+	Vector<String> ios_project_static_libs;
 	String ios_plist_content;
 	String ios_linker_flags;
 	Vector<String> ios_bundle_files;
@@ -301,6 +309,7 @@ class EditorExportPlugin : public Reference {
 
 	_FORCE_INLINE_ void _export_end() {
 		ios_frameworks.clear();
+		ios_embedded_frameworks.clear();
 		ios_bundle_files.clear();
 		ios_plist_content = "";
 		ios_linker_flags = "";
@@ -319,6 +328,8 @@ protected:
 	void add_shared_object(const String &p_path, const Vector<String> &tags);
 
 	void add_ios_framework(const String &p_path);
+	void add_ios_embedded_framework(const String &p_path);
+	void add_ios_project_static_lib(const String &p_path);
 	void add_ios_plist_content(const String &p_plist_content);
 	void add_ios_linker_flags(const String &p_flags);
 	void add_ios_bundle_file(const String &p_path);
@@ -333,6 +344,8 @@ protected:
 
 public:
 	Vector<String> get_ios_frameworks() const;
+	Vector<String> get_ios_embedded_frameworks() const;
+	Vector<String> get_ios_project_static_libs() const;
 	String get_ios_plist_content() const;
 	String get_ios_linker_flags() const;
 	Vector<String> get_ios_bundle_files() const;
@@ -347,6 +360,8 @@ class EditorExport : public Node {
 	Vector<Ref<EditorExportPlatform> > export_platforms;
 	Vector<Ref<EditorExportPreset> > export_presets;
 	Vector<Ref<EditorExportPlugin> > export_plugins;
+
+	StringName _export_presets_updated;
 
 	Timer *save_timer;
 	bool block_save;
@@ -379,7 +394,7 @@ public:
 	Vector<Ref<EditorExportPlugin> > get_export_plugins();
 
 	void load_config();
-
+	void update_export_presets();
 	bool poll_export_platforms();
 
 	EditorExport();
@@ -388,8 +403,12 @@ public:
 
 class EditorExportPlatformPC : public EditorExportPlatform {
 
-	GDCLASS(EditorExportPlatformPC, EditorExportPlatform)
+	GDCLASS(EditorExportPlatformPC, EditorExportPlatform);
 
+public:
+	typedef Error (*FixUpEmbeddedPckFunc)(const String &p_path, int64_t p_embedded_start, int64_t p_embedded_size);
+
+private:
 	Ref<ImageTexture> logo;
 	String name;
 	String os_name;
@@ -404,6 +423,8 @@ class EditorExportPlatformPC : public EditorExportPlatform {
 
 	int chmod_flags;
 
+	FixUpEmbeddedPckFunc fixup_embedded_pck_func;
+
 public:
 	virtual void get_preset_features(const Ref<EditorExportPreset> &p_preset, List<String> *r_features);
 
@@ -416,6 +437,7 @@ public:
 	virtual bool can_export(const Ref<EditorExportPreset> &p_preset, String &r_error, bool &r_missing_templates) const;
 	virtual List<String> get_binary_extensions(const Ref<EditorExportPreset> &p_preset) const;
 	virtual Error export_project(const Ref<EditorExportPreset> &p_preset, bool p_debug, const String &p_path, int p_flags = 0);
+	virtual Error sign_shared_object(const Ref<EditorExportPreset> &p_preset, bool p_debug, const String &p_path);
 
 	void set_extension(const String &p_extension, const String &p_feature_key = "default");
 	void set_name(const String &p_name);
@@ -435,12 +457,15 @@ public:
 	int get_chmod_flags() const;
 	void set_chmod_flags(int p_flags);
 
+	FixUpEmbeddedPckFunc get_fixup_embedded_pck_func() const;
+	void set_fixup_embedded_pck_func(FixUpEmbeddedPckFunc p_fixup_embedded_pck_func);
+
 	EditorExportPlatformPC();
 };
 
 class EditorExportTextSceneToBinaryPlugin : public EditorExportPlugin {
 
-	GDCLASS(EditorExportTextSceneToBinaryPlugin, EditorExportPlugin)
+	GDCLASS(EditorExportTextSceneToBinaryPlugin, EditorExportPlugin);
 
 public:
 	virtual void _export_file(const String &p_path, const String &p_type, const Set<String> &p_features);

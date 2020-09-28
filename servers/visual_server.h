@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -39,9 +39,6 @@
 #include "core/rid.h"
 #include "core/variant.h"
 
-/**
-	@author Juan Linietsky <reduzio@gmail.com>
-*/
 class VisualServer : public Object {
 
 	GDCLASS(VisualServer, Object);
@@ -49,6 +46,7 @@ class VisualServer : public Object {
 	static VisualServer *singleton;
 
 	int mm_policy;
+	bool render_loop_enabled = true;
 
 	void _camera_set_orthogonal(RID p_camera, float p_size, float p_z_near, float p_z_far);
 	void _canvas_item_add_style_box(RID p_item, const Rect2 &p_rect, const Rect2 &p_source, RID p_texture, const Vector<float> &p_margins, const Color &p_modulate = Color(1, 1, 1));
@@ -96,6 +94,7 @@ public:
 
 	enum TextureType {
 		TEXTURE_TYPE_2D,
+		TEXTURE_TYPE_EXTERNAL,
 		TEXTURE_TYPE_CUBEMAP,
 		TEXTURE_TYPE_2D_ARRAY,
 		TEXTURE_TYPE_3D,
@@ -140,6 +139,7 @@ public:
 	virtual uint32_t texture_get_height(RID p_texture) const = 0;
 	virtual uint32_t texture_get_depth(RID p_texture) const = 0;
 	virtual void texture_set_size_override(RID p_texture, int p_width, int p_height, int p_depth_3d) = 0;
+	virtual void texture_bind(RID p_texture, uint32_t p_texture_no) = 0;
 
 	virtual void texture_set_path(RID p_texture, const String &p_path) = 0;
 	virtual String texture_get_path(RID p_texture) const = 0;
@@ -194,6 +194,10 @@ public:
 
 	virtual void shader_set_default_texture_param(RID p_shader, const StringName &p_name, RID p_texture) = 0;
 	virtual RID shader_get_default_texture_param(RID p_shader, const StringName &p_name) const = 0;
+
+	virtual void shader_add_custom_define(RID p_shader, const String &p_define) = 0;
+	virtual void shader_get_custom_defines(RID p_shader, Vector<String> *p_defines) const = 0;
+	virtual void shader_remove_custom_define(RID p_shader, const String &p_define) = 0;
 
 	/* COMMON MATERIAL API */
 
@@ -337,12 +341,14 @@ public:
 		MULTIMESH_COLOR_NONE,
 		MULTIMESH_COLOR_8BIT,
 		MULTIMESH_COLOR_FLOAT,
+		MULTIMESH_COLOR_MAX,
 	};
 
 	enum MultimeshCustomDataFormat {
 		MULTIMESH_CUSTOM_DATA_NONE,
 		MULTIMESH_CUSTOM_DATA_8BIT,
 		MULTIMESH_CUSTOM_DATA_FLOAT,
+		MULTIMESH_CUSTOM_DATA_MAX,
 	};
 
 	virtual void multimesh_allocate(RID p_multimesh, int p_instances, MultimeshTransformFormat p_transform_format, MultimeshColorFormat p_color_format, MultimeshCustomDataFormat p_data_format = MULTIMESH_CUSTOM_DATA_NONE) = 0;
@@ -393,7 +399,6 @@ public:
 	virtual void skeleton_bone_set_transform_2d(RID p_skeleton, int p_bone, const Transform2D &p_transform) = 0;
 	virtual Transform2D skeleton_bone_get_transform_2d(RID p_skeleton, int p_bone) const = 0;
 	virtual void skeleton_set_base_transform_2d(RID p_skeleton, const Transform2D &p_base_transform) = 0;
-	virtual void skeleton_set_world_transform(RID p_skeleton, bool p_enable, const Transform &p_base_transform) = 0;
 
 	/* Light API */
 
@@ -435,6 +440,7 @@ public:
 	virtual void light_set_negative(RID p_light, bool p_enable) = 0;
 	virtual void light_set_cull_mask(RID p_light, uint32_t p_mask) = 0;
 	virtual void light_set_reverse_cull_face_mode(RID p_light, bool p_enabled) = 0;
+	virtual void light_set_use_gi(RID p_light, bool p_enable) = 0;
 
 	// omni light
 	enum LightOmniShadowMode {
@@ -562,6 +568,8 @@ public:
 	virtual void particles_set_process_material(RID p_particles, RID p_material) = 0;
 	virtual void particles_set_fixed_fps(RID p_particles, int p_fps) = 0;
 	virtual void particles_set_fractional_delta(RID p_particles, bool p_enable) = 0;
+	virtual bool particles_is_inactive(RID p_particles) = 0;
+	virtual void particles_request_process(RID p_particles) = 0;
 	virtual void particles_restart(RID p_particles) = 0;
 
 	enum ParticlesDrawOrder {
@@ -584,6 +592,7 @@ public:
 	virtual RID camera_create() = 0;
 	virtual void camera_set_perspective(RID p_camera, float p_fovy_degrees, float p_z_near, float p_z_far) = 0;
 	virtual void camera_set_orthogonal(RID p_camera, float p_size, float p_z_near, float p_z_far) = 0;
+	virtual void camera_set_frustum(RID p_camera, float p_size, Vector2 p_offset, float p_z_near, float p_z_far) = 0;
 	virtual void camera_set_transform(RID p_camera, const Transform &p_transform) = 0;
 	virtual void camera_set_cull_mask(RID p_camera, uint32_t p_layers) = 0;
 	virtual void camera_set_environment(RID p_camera, RID p_env) = 0;
@@ -608,6 +617,7 @@ public:
 	virtual void viewport_set_parent_viewport(RID p_viewport, RID p_parent_viewport) = 0;
 
 	virtual void viewport_attach_to_screen(RID p_viewport, const Rect2 &p_rect = Rect2(), int p_screen = 0) = 0;
+	virtual void viewport_set_render_direct_to_screen(RID p_viewport, bool p_enable) = 0;
 	virtual void viewport_detach(RID p_viewport) = 0;
 
 	enum ViewportUpdateMode {
@@ -656,6 +666,8 @@ public:
 		VIEWPORT_MSAA_4X,
 		VIEWPORT_MSAA_8X,
 		VIEWPORT_MSAA_16X,
+		VIEWPORT_MSAA_EXT_2X,
+		VIEWPORT_MSAA_EXT_4X,
 	};
 
 	virtual void viewport_set_msaa(RID p_viewport, ViewportMSAA p_msaa) = 0;
@@ -678,6 +690,8 @@ public:
 		VIEWPORT_RENDER_INFO_SHADER_CHANGES_IN_FRAME,
 		VIEWPORT_RENDER_INFO_SURFACE_CHANGES_IN_FRAME,
 		VIEWPORT_RENDER_INFO_DRAW_CALLS_IN_FRAME,
+		VIEWPORT_RENDER_INFO_2D_ITEMS_IN_FRAME,
+		VIEWPORT_RENDER_INFO_2D_DRAW_CALLS_IN_FRAME,
 		VIEWPORT_RENDER_INFO_MAX
 	};
 
@@ -704,6 +718,7 @@ public:
 		ENV_BG_COLOR_SKY,
 		ENV_BG_CANVAS,
 		ENV_BG_KEEP,
+		ENV_BG_CAMERA_FEED,
 		ENV_BG_MAX
 	};
 
@@ -715,6 +730,7 @@ public:
 	virtual void environment_set_bg_energy(RID p_env, float p_energy) = 0;
 	virtual void environment_set_canvas_max_layer(RID p_env, int p_max_layer) = 0;
 	virtual void environment_set_ambient_light(RID p_env, const Color &p_color, float p_energy = 1.0, float p_sky_contribution = 0.0) = 0;
+	virtual void environment_set_camera_feed_id(RID p_env, int p_camera_feed_id) = 0;
 
 	//set default SSAO options
 	//set default SSR options
@@ -805,14 +821,13 @@ public:
 
 	virtual RID instance_create2(RID p_base, RID p_scenario);
 
-	//virtual RID instance_create(RID p_base,RID p_scenario)=0; // from can be mesh, light,  area and portal so far.
-	virtual RID instance_create() = 0; // from can be mesh, light, poly, area and portal so far.
+	virtual RID instance_create() = 0;
 
-	virtual void instance_set_base(RID p_instance, RID p_base) = 0; // from can be mesh, light, poly, area and portal so far.
-	virtual void instance_set_scenario(RID p_instance, RID p_scenario) = 0; // from can be mesh, light, poly, area and portal so far.
+	virtual void instance_set_base(RID p_instance, RID p_base) = 0;
+	virtual void instance_set_scenario(RID p_instance, RID p_scenario) = 0;
 	virtual void instance_set_layer_mask(RID p_instance, uint32_t p_mask) = 0;
 	virtual void instance_set_transform(RID p_instance, const Transform &p_transform) = 0;
-	virtual void instance_attach_object_instance_id(RID p_instance, ObjectID p_ID) = 0;
+	virtual void instance_attach_object_instance_id(RID p_instance, ObjectID p_id) = 0;
 	virtual void instance_set_blend_shape_weight(RID p_instance, int p_shape, float p_weight) = 0;
 	virtual void instance_set_surface_material(RID p_instance, int p_surface, RID p_material) = 0;
 	virtual void instance_set_visible(RID p_instance, bool p_visible) = 0;
@@ -860,6 +875,9 @@ public:
 	virtual RID canvas_create() = 0;
 	virtual void canvas_set_item_mirroring(RID p_canvas, RID p_item, const Point2 &p_mirroring) = 0;
 	virtual void canvas_set_modulate(RID p_canvas, const Color &p_color) = 0;
+	virtual void canvas_set_parent(RID p_canvas, RID p_parent, float p_scale) = 0;
+
+	virtual void canvas_set_disable_scale(bool p_disable) = 0;
 
 	virtual RID canvas_item_create() = 0;
 	virtual void canvas_item_set_parent(RID p_item, RID p_parent) = 0;
@@ -894,8 +912,8 @@ public:
 	virtual void canvas_item_add_nine_patch(RID p_item, const Rect2 &p_rect, const Rect2 &p_source, RID p_texture, const Vector2 &p_topleft, const Vector2 &p_bottomright, NinePatchAxisMode p_x_axis_mode = NINE_PATCH_STRETCH, NinePatchAxisMode p_y_axis_mode = NINE_PATCH_STRETCH, bool p_draw_center = true, const Color &p_modulate = Color(1, 1, 1), RID p_normal_map = RID()) = 0;
 	virtual void canvas_item_add_primitive(RID p_item, const Vector<Point2> &p_points, const Vector<Color> &p_colors, const Vector<Point2> &p_uvs, RID p_texture, float p_width = 1.0, RID p_normal_map = RID()) = 0;
 	virtual void canvas_item_add_polygon(RID p_item, const Vector<Point2> &p_points, const Vector<Color> &p_colors, const Vector<Point2> &p_uvs = Vector<Point2>(), RID p_texture = RID(), RID p_normal_map = RID(), bool p_antialiased = false) = 0;
-	virtual void canvas_item_add_triangle_array(RID p_item, const Vector<int> &p_indices, const Vector<Point2> &p_points, const Vector<Color> &p_colors, const Vector<Point2> &p_uvs = Vector<Point2>(), const Vector<int> &p_bones = Vector<int>(), const Vector<float> &p_weights = Vector<float>(), RID p_texture = RID(), int p_count = -1, RID p_normal_map = RID()) = 0;
-	virtual void canvas_item_add_mesh(RID p_item, const RID &p_mesh, RID p_texture = RID(), RID p_normal_map = RID()) = 0;
+	virtual void canvas_item_add_triangle_array(RID p_item, const Vector<int> &p_indices, const Vector<Point2> &p_points, const Vector<Color> &p_colors, const Vector<Point2> &p_uvs = Vector<Point2>(), const Vector<int> &p_bones = Vector<int>(), const Vector<float> &p_weights = Vector<float>(), RID p_texture = RID(), int p_count = -1, RID p_normal_map = RID(), bool p_antialiased = false, bool p_antialiasing_use_indices = false) = 0;
+	virtual void canvas_item_add_mesh(RID p_item, const RID &p_mesh, const Transform2D &p_transform = Transform2D(), const Color &p_modulate = Color(1, 1, 1), RID p_texture = RID(), RID p_normal_map = RID()) = 0;
 	virtual void canvas_item_add_multimesh(RID p_item, RID p_mesh, RID p_texture = RID(), RID p_normal_map = RID()) = 0;
 	virtual void canvas_item_add_particles(RID p_item, RID p_particles, RID p_texture, RID p_normal_map) = 0;
 	virtual void canvas_item_add_set_transform(RID p_item, const Transform2D &p_transform) = 0;
@@ -1001,6 +1019,8 @@ public:
 		INFO_SHADER_CHANGES_IN_FRAME,
 		INFO_SURFACE_CHANGES_IN_FRAME,
 		INFO_DRAW_CALLS_IN_FRAME,
+		INFO_2D_ITEMS_IN_FRAME,
+		INFO_2D_DRAW_CALLS_IN_FRAME,
 		INFO_USAGE_VIDEO_MEM_TOTAL,
 		INFO_VIDEO_MEM_USED,
 		INFO_TEXTURE_MEM_USED,
@@ -1008,6 +1028,8 @@ public:
 	};
 
 	virtual int get_render_info(RenderInfo p_info) = 0;
+	virtual String get_video_adapter_name() const = 0;
+	virtual String get_video_adapter_vendor() const = 0;
 
 	/* Materials for 2D on 3D */
 
@@ -1023,8 +1045,9 @@ public:
 	virtual void mesh_add_surface_from_mesh_data(RID p_mesh, const Geometry::MeshData &p_mesh_data);
 	virtual void mesh_add_surface_from_planes(RID p_mesh, const PoolVector<Plane> &p_planes);
 
-	virtual void set_boot_image(const Ref<Image> &p_image, const Color &p_color, bool p_scale) = 0;
+	virtual void set_boot_image(const Ref<Image> &p_image, const Color &p_color, bool p_scale, bool p_use_filter = true) = 0;
 	virtual void set_default_clear_color(const Color &p_color) = 0;
+	virtual void set_shader_time_scale(float p_scale) = 0;
 
 	enum Features {
 		FEATURE_SHADERS,
@@ -1040,6 +1063,9 @@ public:
 	virtual void call_set_use_vsync(bool p_enable) = 0;
 
 	virtual bool is_low_end() const = 0;
+
+	bool is_render_loop_enabled() const;
+	void set_render_loop_enabled(bool p_enabled);
 
 	VisualServer();
 	virtual ~VisualServer();

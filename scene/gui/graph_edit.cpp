@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -200,6 +200,13 @@ void GraphEdit::_update_scroll() {
 	else
 		v_scroll->show();
 
+	Size2 hmin = h_scroll->get_combined_minimum_size();
+	Size2 vmin = v_scroll->get_combined_minimum_size();
+
+	// Avoid scrollbar overlapping.
+	h_scroll->set_anchor_and_margin(MARGIN_RIGHT, ANCHOR_END, v_scroll->is_visible() ? -vmin.width : 0);
+	v_scroll->set_anchor_and_margin(MARGIN_BOTTOM, ANCHOR_END, h_scroll->is_visible() ? -hmin.height : 0);
+
 	set_block_minimum_size_adjust(false);
 
 	if (!awaiting_scroll_offset_update) {
@@ -268,6 +275,7 @@ void GraphEdit::remove_child_notify(Node *p_child) {
 	if (gn) {
 		gn->disconnect("offset_changed", this, "_graph_node_moved");
 		gn->disconnect("raise_request", this, "_graph_node_raised");
+		gn->disconnect("item_rect_changed", connections_layer, "update");
 	}
 }
 
@@ -276,25 +284,25 @@ void GraphEdit::_notification(int p_what) {
 	if (p_what == NOTIFICATION_ENTER_TREE || p_what == NOTIFICATION_THEME_CHANGED) {
 		port_grab_distance_horizontal = get_constant("port_grab_distance_horizontal");
 		port_grab_distance_vertical = get_constant("port_grab_distance_vertical");
+
+		zoom_minus->set_icon(get_icon("minus"));
+		zoom_reset->set_icon(get_icon("reset"));
+		zoom_plus->set_icon(get_icon("more"));
+		snap_button->set_icon(get_icon("snap"));
 	}
 	if (p_what == NOTIFICATION_READY) {
 		Size2 hmin = h_scroll->get_combined_minimum_size();
 		Size2 vmin = v_scroll->get_combined_minimum_size();
-
-		v_scroll->set_anchor_and_margin(MARGIN_LEFT, ANCHOR_END, -vmin.width);
-		v_scroll->set_anchor_and_margin(MARGIN_RIGHT, ANCHOR_END, 0);
-		v_scroll->set_anchor_and_margin(MARGIN_TOP, ANCHOR_BEGIN, 0);
-		v_scroll->set_anchor_and_margin(MARGIN_BOTTOM, ANCHOR_END, 0);
 
 		h_scroll->set_anchor_and_margin(MARGIN_LEFT, ANCHOR_BEGIN, 0);
 		h_scroll->set_anchor_and_margin(MARGIN_RIGHT, ANCHOR_END, 0);
 		h_scroll->set_anchor_and_margin(MARGIN_TOP, ANCHOR_END, -hmin.height);
 		h_scroll->set_anchor_and_margin(MARGIN_BOTTOM, ANCHOR_END, 0);
 
-		zoom_minus->set_icon(get_icon("minus"));
-		zoom_reset->set_icon(get_icon("reset"));
-		zoom_plus->set_icon(get_icon("more"));
-		snap_button->set_icon(get_icon("snap"));
+		v_scroll->set_anchor_and_margin(MARGIN_LEFT, ANCHOR_END, -vmin.width);
+		v_scroll->set_anchor_and_margin(MARGIN_RIGHT, ANCHOR_END, 0);
+		v_scroll->set_anchor_and_margin(MARGIN_TOP, ANCHOR_BEGIN, 0);
+		v_scroll->set_anchor_and_margin(MARGIN_BOTTOM, ANCHOR_END, 0);
 	}
 	if (p_what == NOTIFICATION_DRAW) {
 
@@ -479,7 +487,7 @@ void GraphEdit::_top_layer_input(const Ref<InputEvent> &p_ev) {
 					connecting_color = gn->get_connection_input_color(j);
 					connecting_target = false;
 					connecting_to = pos;
-					just_disconnected = true;
+					just_disconnected = false;
 
 					return;
 				}
@@ -550,11 +558,18 @@ void GraphEdit::_top_layer_input(const Ref<InputEvent> &p_ev) {
 			emit_signal("connection_request", from, from_slot, to, to_slot);
 
 		} else if (!just_disconnected) {
+
 			String from = connecting_from;
 			int from_slot = connecting_index;
 			Vector2 ofs = Vector2(mb->get_position().x, mb->get_position().y);
-			emit_signal("connection_to_empty", from, from_slot, ofs);
+
+			if (!connecting_out) {
+				emit_signal("connection_from_empty", from, from_slot, ofs);
+			} else {
+				emit_signal("connection_to_empty", from, from_slot, ofs);
+			}
 		}
+
 		connecting = false;
 		top_layer->update();
 		update();
@@ -769,8 +784,10 @@ void GraphEdit::_top_layer_draw() {
 		_draw_cos_line(top_layer, pos, topos, col, col);
 	}
 
-	if (box_selecting)
-		top_layer->draw_rect(box_selecting_rect, Color(0.7, 0.7, 1.0, 0.3));
+	if (box_selecting) {
+		top_layer->draw_rect(box_selecting_rect, get_color("selection_fill"));
+		top_layer->draw_rect(box_selecting_rect, get_color("selection_stroke"), false);
+	}
 }
 
 void GraphEdit::set_selected(Node *p_child) {
@@ -796,16 +813,17 @@ void GraphEdit::_gui_input(const Ref<InputEvent> &p_ev) {
 	if (mm.is_valid() && dragging) {
 
 		just_selected = true;
-		// TODO: Remove local mouse pos hack if/when InputEventMouseMotion is fixed to support floats
-		//drag_accum+=Vector2(mm->get_relative().x,mm->get_relative().y);
-		drag_accum = get_local_mouse_position() - drag_origin;
+		drag_accum += mm->get_relative();
 		for (int i = get_child_count() - 1; i >= 0; i--) {
 			GraphNode *gn = Object::cast_to<GraphNode>(get_child(i));
 			if (gn && gn->is_selected()) {
 
 				Vector2 pos = (gn->get_drag_from() * zoom + drag_accum) / zoom;
-				if (is_using_snap()) {
-					int snap = get_snap();
+
+				// Snapping can be toggled temporarily by holding down Ctrl.
+				// This is done here as to not toggle the grid when holding down Ctrl.
+				if (is_using_snap() ^ Input::get_singleton()->is_key_pressed(KEY_CONTROL)) {
+					const int snap = get_snap();
 					pos = pos.snapped(Vector2(snap, snap));
 				}
 
@@ -815,7 +833,7 @@ void GraphEdit::_gui_input(const Ref<InputEvent> &p_ev) {
 	}
 
 	if (mm.is_valid() && box_selecting) {
-		box_selecting_to = get_local_mouse_position();
+		box_selecting_to = mm->get_position();
 
 		box_selecting_rect = Rect2(MIN(box_selecting_from.x, box_selecting_to.x),
 				MIN(box_selecting_from.y, box_selecting_to.y),
@@ -832,10 +850,22 @@ void GraphEdit::_gui_input(const Ref<InputEvent> &p_ev) {
 			r.size *= zoom;
 			bool in_box = r.intersects(box_selecting_rect);
 
-			if (in_box)
-				gn->set_selected(box_selection_mode_aditive);
-			else
-				gn->set_selected(previus_selected.find(gn) != NULL);
+			if (in_box) {
+				if (!gn->is_selected() && box_selection_mode_additive) {
+					emit_signal("node_selected", gn);
+				} else if (gn->is_selected() && !box_selection_mode_additive) {
+					emit_signal("node_unselected", gn);
+				}
+				gn->set_selected(box_selection_mode_additive);
+			} else {
+				bool select = (previus_selected.find(gn) != NULL);
+				if (gn->is_selected() && !select) {
+					emit_signal("node_unselected", gn);
+				} else if (!gn->is_selected() && select) {
+					emit_signal("node_selected", gn);
+				}
+				gn->set_selected(select);
+			}
 		}
 
 		top_layer->update();
@@ -853,7 +883,13 @@ void GraphEdit::_gui_input(const Ref<InputEvent> &p_ev) {
 					if (!gn)
 						continue;
 
-					gn->set_selected(previus_selected.find(gn) != NULL);
+					bool select = (previus_selected.find(gn) != NULL);
+					if (gn->is_selected() && !select) {
+						emit_signal("node_unselected", gn);
+					} else if (!gn->is_selected() && select) {
+						emit_signal("node_selected", gn);
+					}
+					gn->set_selected(select);
 				}
 				top_layer->update();
 			} else {
@@ -875,8 +911,10 @@ void GraphEdit::_gui_input(const Ref<InputEvent> &p_ev) {
 					if (gn) {
 						Rect2 r = gn->get_rect();
 						r.size *= zoom;
-						if (r.has_point(get_local_mouse_position()))
+						if (r.has_point(b->get_position())) {
+							emit_signal("node_unselected", gn);
 							gn->set_selected(false);
+						}
 					}
 				}
 			}
@@ -913,7 +951,7 @@ void GraphEdit::_gui_input(const Ref<InputEvent> &p_ev) {
 					if (gn_selected->is_resizing())
 						continue;
 
-					if (gn_selected->has_point(gn_selected->get_local_mouse_position())) {
+					if (gn_selected->has_point(b->get_position() - gn_selected->get_position())) {
 						gn = gn_selected;
 						break;
 					}
@@ -927,13 +965,20 @@ void GraphEdit::_gui_input(const Ref<InputEvent> &p_ev) {
 
 				dragging = true;
 				drag_accum = Vector2();
-				drag_origin = get_local_mouse_position();
 				just_selected = !gn->is_selected();
 				if (!gn->is_selected() && !Input::get_singleton()->is_key_pressed(KEY_CONTROL)) {
 					for (int i = 0; i < get_child_count(); i++) {
 						GraphNode *o_gn = Object::cast_to<GraphNode>(get_child(i));
-						if (o_gn)
-							o_gn->set_selected(o_gn == gn);
+						if (o_gn) {
+							if (o_gn == gn) {
+								o_gn->set_selected(true);
+							} else {
+								if (o_gn->is_selected()) {
+									emit_signal("node_unselected", o_gn);
+								}
+								o_gn->set_selected(false);
+							}
+						}
 					}
 				}
 
@@ -953,9 +998,9 @@ void GraphEdit::_gui_input(const Ref<InputEvent> &p_ev) {
 					return;
 
 				box_selecting = true;
-				box_selecting_from = get_local_mouse_position();
+				box_selecting_from = b->get_position();
 				if (b->get_control()) {
-					box_selection_mode_aditive = true;
+					box_selection_mode_additive = true;
 					previus_selected.clear();
 					for (int i = get_child_count() - 1; i >= 0; i--) {
 
@@ -966,7 +1011,7 @@ void GraphEdit::_gui_input(const Ref<InputEvent> &p_ev) {
 						previus_selected.push_back(gn2);
 					}
 				} else if (b->get_shift()) {
-					box_selection_mode_aditive = false;
+					box_selection_mode_additive = false;
 					previus_selected.clear();
 					for (int i = get_child_count() - 1; i >= 0; i--) {
 
@@ -977,14 +1022,16 @@ void GraphEdit::_gui_input(const Ref<InputEvent> &p_ev) {
 						previus_selected.push_back(gn2);
 					}
 				} else {
-					box_selection_mode_aditive = true;
+					box_selection_mode_additive = true;
 					previus_selected.clear();
 					for (int i = get_child_count() - 1; i >= 0; i--) {
 
 						GraphNode *gn2 = Object::cast_to<GraphNode>(get_child(i));
 						if (!gn2)
 							continue;
-
+						if (gn2->is_selected()) {
+							emit_signal("node_unselected", gn2);
+						}
 						gn2->set_selected(false);
 					}
 				}
@@ -1021,14 +1068,28 @@ void GraphEdit::_gui_input(const Ref<InputEvent> &p_ev) {
 	}
 
 	Ref<InputEventKey> k = p_ev;
-	if (k.is_valid() && k->get_scancode() == KEY_D && k->is_pressed() && k->get_command()) {
-		emit_signal("duplicate_nodes_request");
-		accept_event();
-	}
 
-	if (k.is_valid() && k->get_scancode() == KEY_DELETE && k->is_pressed()) {
-		emit_signal("delete_nodes_request");
-		accept_event();
+	if (k.is_valid()) {
+
+		if (k->get_scancode() == KEY_D && k->is_pressed() && k->get_command()) {
+			emit_signal("duplicate_nodes_request");
+			accept_event();
+		}
+
+		if (k->get_scancode() == KEY_C && k->is_pressed() && k->get_command()) {
+			emit_signal("copy_nodes_request");
+			accept_event();
+		}
+
+		if (k->get_scancode() == KEY_V && k->is_pressed() && k->get_command()) {
+			emit_signal("paste_nodes_request");
+			accept_event();
+		}
+
+		if (k->get_scancode() == KEY_DELETE && k->is_pressed()) {
+			emit_signal("delete_nodes_request");
+			accept_event();
+		}
 	}
 
 	Ref<InputEventMagnifyGesture> magnify_gesture = p_ev;
@@ -1051,7 +1112,7 @@ void GraphEdit::set_connection_activity(const StringName &p_from, int p_from_por
 
 		if (E->get().from == p_from && E->get().from_port == p_from_port && E->get().to == p_to && E->get().to_port == p_to_port) {
 
-			if (ABS(E->get().activity - p_activity) < CMP_EPSILON) {
+			if (Math::is_equal_approx(E->get().activity, p_activity)) {
 				//update only if changed
 				top_layer->update();
 				connections_layer->update();
@@ -1288,8 +1349,12 @@ void GraphEdit::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("disconnection_request", PropertyInfo(Variant::STRING, "from"), PropertyInfo(Variant::INT, "from_slot"), PropertyInfo(Variant::STRING, "to"), PropertyInfo(Variant::INT, "to_slot")));
 	ADD_SIGNAL(MethodInfo("popup_request", PropertyInfo(Variant::VECTOR2, "position")));
 	ADD_SIGNAL(MethodInfo("duplicate_nodes_request"));
+	ADD_SIGNAL(MethodInfo("copy_nodes_request"));
+	ADD_SIGNAL(MethodInfo("paste_nodes_request"));
 	ADD_SIGNAL(MethodInfo("node_selected", PropertyInfo(Variant::OBJECT, "node", PROPERTY_HINT_RESOURCE_TYPE, "Node")));
+	ADD_SIGNAL(MethodInfo("node_unselected", PropertyInfo(Variant::OBJECT, "node", PROPERTY_HINT_RESOURCE_TYPE, "Node")));
 	ADD_SIGNAL(MethodInfo("connection_to_empty", PropertyInfo(Variant::STRING, "from"), PropertyInfo(Variant::INT, "from_slot"), PropertyInfo(Variant::VECTOR2, "release_position")));
+	ADD_SIGNAL(MethodInfo("connection_from_empty", PropertyInfo(Variant::STRING, "to"), PropertyInfo(Variant::INT, "to_slot"), PropertyInfo(Variant::VECTOR2, "release_position")));
 	ADD_SIGNAL(MethodInfo("delete_nodes_request"));
 	ADD_SIGNAL(MethodInfo("_begin_node_move"));
 	ADD_SIGNAL(MethodInfo("_end_node_move"));
@@ -1323,6 +1388,7 @@ GraphEdit::GraphEdit() {
 	v_scroll = memnew(VScrollBar);
 	v_scroll->set_name("_v_scroll");
 	top_layer->add_child(v_scroll);
+
 	updating = false;
 	connecting = false;
 	right_disconnects = false;

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -32,6 +32,7 @@
 
 #include "core/message_queue.h"
 #include "core/os/os.h"
+#include "scene/main/node.h"
 #include "scene/main/scene_tree.h"
 #include "servers/audio_server.h"
 #include "servers/physics_2d_server.h"
@@ -55,12 +56,15 @@ void Performance::_bind_methods() {
 	BIND_ENUM_CONSTANT(OBJECT_COUNT);
 	BIND_ENUM_CONSTANT(OBJECT_RESOURCE_COUNT);
 	BIND_ENUM_CONSTANT(OBJECT_NODE_COUNT);
+	BIND_ENUM_CONSTANT(OBJECT_ORPHAN_NODE_COUNT);
 	BIND_ENUM_CONSTANT(RENDER_OBJECTS_IN_FRAME);
 	BIND_ENUM_CONSTANT(RENDER_VERTICES_IN_FRAME);
 	BIND_ENUM_CONSTANT(RENDER_MATERIAL_CHANGES_IN_FRAME);
 	BIND_ENUM_CONSTANT(RENDER_SHADER_CHANGES_IN_FRAME);
 	BIND_ENUM_CONSTANT(RENDER_SURFACE_CHANGES_IN_FRAME);
 	BIND_ENUM_CONSTANT(RENDER_DRAW_CALLS_IN_FRAME);
+	BIND_ENUM_CONSTANT(RENDER_2D_ITEMS_IN_FRAME);
+	BIND_ENUM_CONSTANT(RENDER_2D_DRAW_CALLS_IN_FRAME);
 	BIND_ENUM_CONSTANT(RENDER_VIDEO_MEM_USED);
 	BIND_ENUM_CONSTANT(RENDER_TEXTURE_MEM_USED);
 	BIND_ENUM_CONSTANT(RENDER_VERTEX_MEM_USED);
@@ -74,6 +78,14 @@ void Performance::_bind_methods() {
 	BIND_ENUM_CONSTANT(AUDIO_OUTPUT_LATENCY);
 
 	BIND_ENUM_CONSTANT(MONITOR_MAX);
+}
+
+float Performance::_get_node_count() const {
+	MainLoop *ml = OS::get_singleton()->get_main_loop();
+	SceneTree *sml = Object::cast_to<SceneTree>(ml);
+	if (!sml)
+		return 0;
+	return sml->get_node_count();
 }
 
 String Performance::get_monitor_name(Monitor p_monitor) const {
@@ -92,12 +104,15 @@ String Performance::get_monitor_name(Monitor p_monitor) const {
 		"object/objects",
 		"object/resources",
 		"object/nodes",
+		"object/orphan_nodes",
 		"raster/objects_drawn",
 		"raster/vertices_drawn",
 		"raster/mat_changes",
 		"raster/shader_changes",
 		"raster/surface_changes",
 		"raster/draw_calls",
+		"2d/items",
+		"2d/draw_calls",
 		"video/video_mem",
 		"video/texture_mem",
 		"video/vertex_mem",
@@ -128,20 +143,16 @@ float Performance::get_monitor(Monitor p_monitor) const {
 		case MEMORY_MESSAGE_BUFFER_MAX: return MessageQueue::get_singleton()->get_max_buffer_usage();
 		case OBJECT_COUNT: return ObjectDB::get_object_count();
 		case OBJECT_RESOURCE_COUNT: return ResourceCache::get_cached_resource_count();
-		case OBJECT_NODE_COUNT: {
-
-			MainLoop *ml = OS::get_singleton()->get_main_loop();
-			SceneTree *sml = Object::cast_to<SceneTree>(ml);
-			if (!sml)
-				return 0;
-			return sml->get_node_count();
-		};
+		case OBJECT_NODE_COUNT: return _get_node_count();
+		case OBJECT_ORPHAN_NODE_COUNT: return Node::orphan_node_count;
 		case RENDER_OBJECTS_IN_FRAME: return VS::get_singleton()->get_render_info(VS::INFO_OBJECTS_IN_FRAME);
 		case RENDER_VERTICES_IN_FRAME: return VS::get_singleton()->get_render_info(VS::INFO_VERTICES_IN_FRAME);
 		case RENDER_MATERIAL_CHANGES_IN_FRAME: return VS::get_singleton()->get_render_info(VS::INFO_MATERIAL_CHANGES_IN_FRAME);
 		case RENDER_SHADER_CHANGES_IN_FRAME: return VS::get_singleton()->get_render_info(VS::INFO_SHADER_CHANGES_IN_FRAME);
 		case RENDER_SURFACE_CHANGES_IN_FRAME: return VS::get_singleton()->get_render_info(VS::INFO_SURFACE_CHANGES_IN_FRAME);
 		case RENDER_DRAW_CALLS_IN_FRAME: return VS::get_singleton()->get_render_info(VS::INFO_DRAW_CALLS_IN_FRAME);
+		case RENDER_2D_ITEMS_IN_FRAME: return VS::get_singleton()->get_render_info(VS::INFO_2D_ITEMS_IN_FRAME);
+		case RENDER_2D_DRAW_CALLS_IN_FRAME: return VS::get_singleton()->get_render_info(VS::INFO_2D_DRAW_CALLS_IN_FRAME);
 		case RENDER_VIDEO_MEM_USED: return VS::get_singleton()->get_render_info(VS::INFO_VIDEO_MEM_USED);
 		case RENDER_TEXTURE_MEM_USED: return VS::get_singleton()->get_render_info(VS::INFO_TEXTURE_MEM_USED);
 		case RENDER_VERTEX_MEM_USED: return VS::get_singleton()->get_render_info(VS::INFO_VERTEX_MEM_USED);
@@ -154,7 +165,8 @@ float Performance::get_monitor(Monitor p_monitor) const {
 		case PHYSICS_3D_ISLAND_COUNT: return PhysicsServer::get_singleton()->get_process_info(PhysicsServer::INFO_ISLAND_COUNT);
 		case AUDIO_OUTPUT_LATENCY: return AudioServer::get_singleton()->get_output_latency();
 
-		default: {}
+		default: {
+		}
 	}
 
 	return 0;
@@ -173,6 +185,9 @@ Performance::MonitorType Performance::get_monitor_type(Monitor p_monitor) const 
 		MONITOR_TYPE_MEMORY,
 		MONITOR_TYPE_MEMORY,
 		MONITOR_TYPE_MEMORY,
+		MONITOR_TYPE_QUANTITY,
+		MONITOR_TYPE_QUANTITY,
+		MONITOR_TYPE_QUANTITY,
 		MONITOR_TYPE_QUANTITY,
 		MONITOR_TYPE_QUANTITY,
 		MONITOR_TYPE_QUANTITY,

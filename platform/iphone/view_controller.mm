@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -32,6 +32,8 @@
 
 #include "os_iphone.h"
 
+#include "core/project_settings.h"
+
 extern "C" {
 
 int add_path(int, char **);
@@ -40,12 +42,12 @@ int add_cmdline(int, char **);
 int add_path(int p_argc, char **p_args) {
 
 	NSString *str = [[[NSBundle mainBundle] infoDictionary] objectForKey:@"godot_path"];
-	if (!str)
+	if (!str) {
 		return p_argc;
+	}
 
-	p_args[p_argc++] = "--path";
-	[str retain]; // memory leak lol (maybe make it static here and delete it in ViewController destructor? @todo
-	p_args[p_argc++] = (char *)[str cString];
+	p_args[p_argc++] = (char *)"--path";
+	p_args[p_argc++] = (char *)[str cStringUsingEncoding:NSUTF8StringEncoding];
 	p_args[p_argc] = NULL;
 
 	return p_argc;
@@ -58,12 +60,11 @@ int add_cmdline(int p_argc, char **p_args) {
 		return p_argc;
 
 	for (int i = 0; i < [arr count]; i++) {
-
 		NSString *str = [arr objectAtIndex:i];
-		if (!str)
+		if (!str) {
 			continue;
-		[str retain]; // @todo delete these at some point
-		p_args[p_argc++] = (char *)[str cString];
+		}
+		p_args[p_argc++] = (char *)[str cStringUsingEncoding:NSUTF8StringEncoding];
 	};
 
 	p_args[p_argc] = NULL;
@@ -79,9 +80,21 @@ int add_cmdline(int p_argc, char **p_args) {
 @implementation ViewController
 
 - (void)didReceiveMemoryWarning {
-
+	[super didReceiveMemoryWarning];
 	printf("*********** did receive memory warning!\n");
 };
+
+- (void)viewDidLoad {
+	[super viewDidLoad];
+
+	if (@available(iOS 11.0, *)) {
+		[self setNeedsUpdateOfScreenEdgesDeferringSystemGestures];
+	}
+}
+
+- (UIRectEdge)preferredScreenEdgesDeferringSystemGestures {
+	return UIRectEdgeAll;
+}
 
 - (BOOL)shouldAutorotate {
 	switch (OS::get_singleton()->get_screen_orientation()) {
@@ -115,6 +128,14 @@ int add_cmdline(int p_argc, char **p_args) {
 
 - (BOOL)prefersStatusBarHidden {
 	return YES;
+}
+
+- (BOOL)prefersHomeIndicatorAutoHidden {
+	if (GLOBAL_GET("display/window/ios/hide_home_indicator")) {
+		return YES;
+	} else {
+		return NO;
+	}
 }
 
 #ifdef GAME_CENTER_ENABLED

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -60,7 +60,9 @@ public:
 
 		bool shrink_textures_x2;
 		bool use_fast_texture_filter;
+		bool use_skeleton_software;
 
+		int max_vertex_texture_image_units;
 		int max_texture_image_units;
 		int max_texture_size;
 
@@ -92,8 +94,12 @@ public:
 
 		bool support_shadow_cubemaps;
 
+		bool multisample_supported;
+		bool render_to_mipmap_supported;
+
 		GLuint depth_internalformat;
 		GLuint depth_type;
+		GLuint depth_buffer_internalformat;
 
 	} config;
 
@@ -143,6 +149,8 @@ public:
 			uint32_t surface_switch_count;
 			uint32_t shader_rebind_count;
 			uint32_t vertices_count;
+			uint32_t _2d_item_count;
+			uint32_t _2d_draw_call_count;
 
 			void reset() {
 				object_count = 0;
@@ -151,6 +159,8 @@ public:
 				surface_switch_count = 0;
 				shader_rebind_count = 0;
 				vertices_count = 0;
+				_2d_item_count = 0;
+				_2d_draw_call_count = 0;
 			}
 		} render, render_final, snap;
 
@@ -332,7 +342,7 @@ public:
 
 	mutable RID_Owner<Texture> texture_owner;
 
-	Ref<Image> _get_gl_image_and_format(const Ref<Image> &p_image, Image::Format p_format, uint32_t p_flags, Image::Format &r_real_format, GLenum &r_gl_format, GLenum &r_gl_internal_format, GLenum &r_gl_type, bool &r_compressed, bool p_will_need_resize) const;
+	Ref<Image> _get_gl_image_and_format(const Ref<Image> &p_image, Image::Format p_format, uint32_t p_flags, Image::Format &r_real_format, GLenum &r_gl_format, GLenum &r_gl_internal_format, GLenum &r_gl_type, bool &r_compressed, bool p_force_decompress) const;
 
 	virtual RID texture_create();
 	virtual void texture_allocate(RID p_texture, int p_width, int p_height, int p_depth_3d, Image::Format p_format, VS::TextureType p_type, uint32_t p_flags = VS::TEXTURE_FLAGS_DEFAULT);
@@ -348,6 +358,7 @@ public:
 	virtual uint32_t texture_get_height(RID p_texture) const;
 	virtual uint32_t texture_get_depth(RID p_texture) const;
 	virtual void texture_set_size_override(RID p_texture, int p_width, int p_height, int p_depth);
+	virtual void texture_bind(RID p_texture, uint32_t p_texture_no);
 
 	virtual void texture_set_path(RID p_texture, const String &p_path);
 	virtual String texture_get_path(RID p_texture) const;
@@ -436,9 +447,21 @@ public:
 
 			int light_mode;
 
+			// these flags are specifically for batching
+			// some of the logic is thus in rasterizer_storage.cpp
+			// we could alternatively set bitflags for each 'uses' and test on the fly
+			enum BatchFlags {
+				PREVENT_COLOR_BAKING = 1 << 0,
+				PREVENT_VERTEX_BAKING = 1 << 1,
+			};
+			unsigned int batch_flags;
+
 			bool uses_screen_texture;
 			bool uses_screen_uv;
 			bool uses_time;
+			bool uses_modulate;
+			bool uses_color;
+			bool uses_vertex;
 
 		} canvas_item;
 
@@ -517,6 +540,10 @@ public:
 
 	virtual void shader_set_default_texture_param(RID p_shader, const StringName &p_name, RID p_texture);
 	virtual RID shader_get_default_texture_param(RID p_shader, const StringName &p_name) const;
+
+	virtual void shader_add_custom_define(RID p_shader, const String &p_define);
+	virtual void shader_get_custom_defines(RID p_shader, Vector<String> *p_defines) const;
+	virtual void shader_remove_custom_define(RID p_shader, const String &p_define);
 
 	void _update_shader(Shader *p_shader) const;
 	void update_dirty_shaders();
@@ -865,16 +892,12 @@ public:
 		Set<RasterizerScene::InstanceBase *> instances;
 
 		Transform2D base_transform_2d;
-		Transform world_transform;
-		Transform world_transform_inverse;
-		bool use_world_transform;
 
 		Skeleton() :
 				use_2d(false),
 				size(0),
 				tex_id(0),
-				update_list(this),
-				use_world_transform(false) {
+				update_list(this) {
 		}
 	};
 
@@ -892,7 +915,6 @@ public:
 	virtual void skeleton_bone_set_transform_2d(RID p_skeleton, int p_bone, const Transform2D &p_transform);
 	virtual Transform2D skeleton_bone_get_transform_2d(RID p_skeleton, int p_bone) const;
 	virtual void skeleton_set_base_transform_2d(RID p_skeleton, const Transform2D &p_base_transform);
-	virtual void skeleton_set_world_transform(RID p_skeleton, bool p_enable, const Transform &p_world_transform);
 
 	void _update_skeleton_transform_buffer(const PoolVector<float> &p_data, size_t p_size);
 
@@ -910,6 +932,7 @@ public:
 		bool shadow;
 		bool negative;
 		bool reverse_cull;
+		bool use_gi;
 
 		uint32_t cull_mask;
 
@@ -936,6 +959,7 @@ public:
 	virtual void light_set_negative(RID p_light, bool p_enable);
 	virtual void light_set_cull_mask(RID p_light, uint32_t p_mask);
 	virtual void light_set_reverse_cull_face_mode(RID p_light, bool p_enabled);
+	virtual void light_set_use_gi(RID p_light, bool p_enabled);
 
 	virtual void light_omni_set_shadow_mode(RID p_light, VS::LightOmniShadowMode p_mode);
 	virtual void light_omni_set_shadow_detail(RID p_light, VS::LightOmniShadowDetail p_detail);
@@ -955,6 +979,7 @@ public:
 	virtual VS::LightType light_get_type(RID p_light) const;
 	virtual float light_get_param(RID p_light, VS::LightParam p_param);
 	virtual Color light_get_color(RID p_light);
+	virtual bool light_get_use_gi(RID p_light);
 
 	virtual AABB light_get_aabb(RID p_light) const;
 	virtual uint64_t light_get_version(RID p_light) const;
@@ -1129,15 +1154,13 @@ public:
 
 	struct RenderTarget : public RID_Data {
 		GLuint fbo;
-
 		GLuint color;
 		GLuint depth;
 
-		// TODO post processing effects?
-
-		// TODO HDR?
-
-		// TODO this is hardcoded for texscreen copies for now
+		GLuint multisample_fbo;
+		GLuint multisample_color;
+		GLuint multisample_depth;
+		bool multisample_active;
 
 		struct Effect {
 			GLuint fbo;
@@ -1156,7 +1179,41 @@ public:
 
 		Effect copy_screen_effect;
 
-		int width, height;
+		struct MipMaps {
+
+			struct Size {
+				GLuint fbo;
+				GLuint color;
+				int width;
+				int height;
+			};
+
+			Vector<Size> sizes;
+			GLuint color;
+			int levels;
+
+			MipMaps() :
+					color(0),
+					levels(0) {
+			}
+		};
+
+		MipMaps mip_maps[2];
+
+		struct External {
+			GLuint fbo;
+			GLuint color;
+			GLuint depth;
+			RID texture;
+
+			External() :
+					fbo(0),
+					color(0),
+					depth(0) {
+			}
+		} external;
+
+		int x, y, width, height;
 
 		bool flags[RENDER_TARGET_FLAG_MAX];
 
@@ -1165,17 +1222,29 @@ public:
 
 		RID texture;
 
+		bool used_dof_blur_near;
+		bool mip_maps_allocated;
+
 		RenderTarget() :
 				fbo(0),
 				color(0),
 				depth(0),
+				multisample_fbo(0),
+				multisample_color(0),
+				multisample_depth(0),
+				multisample_active(false),
+				x(0),
+				y(0),
 				width(0),
 				height(0),
 				used_in_frame(false),
-				msaa(VS::VIEWPORT_MSAA_DISABLED) {
+				msaa(VS::VIEWPORT_MSAA_DISABLED),
+				used_dof_blur_near(false),
+				mip_maps_allocated(false) {
 			for (int i = 0; i < RENDER_TARGET_FLAG_MAX; ++i) {
 				flags[i] = false;
 			}
+			external.fbo = 0;
 		}
 	};
 
@@ -1185,8 +1254,10 @@ public:
 	void _render_target_allocate(RenderTarget *rt);
 
 	virtual RID render_target_create();
+	virtual void render_target_set_position(RID p_render_target, int p_x, int p_y);
 	virtual void render_target_set_size(RID p_render_target, int p_width, int p_height);
 	virtual RID render_target_get_texture(RID p_render_target) const;
+	virtual void render_target_set_external_texture(RID p_render_target, unsigned int p_texture_id);
 
 	virtual void render_target_set_flag(RID p_render_target, RenderTargetFlags p_flag, bool p_value);
 	virtual bool render_target_was_used(RID p_render_target);
@@ -1233,7 +1304,6 @@ public:
 
 		bool clear_request;
 		Color clear_request_color;
-		int canvas_draw_commands;
 		float time[4];
 		float delta;
 		uint64_t count;
@@ -1256,6 +1326,8 @@ public:
 	virtual int get_captured_render_info(VS::RenderInfo p_info);
 
 	virtual int get_render_info(VS::RenderInfo p_info);
+	virtual String get_video_adapter_name() const;
+	virtual String get_video_adapter_vendor() const;
 
 	RasterizerStorageGLES2();
 };

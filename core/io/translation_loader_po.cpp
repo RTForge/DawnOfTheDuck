@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -33,10 +33,8 @@
 #include "core/os/file_access.h"
 #include "core/translation.h"
 
-RES TranslationLoaderPO::load_translation(FileAccess *f, Error *r_error, const String &p_path) {
-
+RES TranslationLoaderPO::load_translation(FileAccess *f, Error *r_error) {
 	enum Status {
-
 		STATUS_NONE,
 		STATUS_READING_ID,
 		STATUS_READING_STRING,
@@ -56,6 +54,7 @@ RES TranslationLoaderPO::load_translation(FileAccess *f, Error *r_error, const S
 	bool skip_this = false;
 	bool skip_next = false;
 	bool is_eof = false;
+	const String path = f->get_path();
 
 	while (!is_eof) {
 
@@ -67,8 +66,7 @@ RES TranslationLoaderPO::load_translation(FileAccess *f, Error *r_error, const S
 
 			if (status == STATUS_READING_ID) {
 				memdelete(f);
-				ERR_EXPLAIN(p_path + ":" + itos(line) + " Unexpected EOF while reading 'msgid' at file: ");
-				ERR_FAIL_V(RES());
+				ERR_FAIL_V_MSG(RES(), "Unexpected EOF while reading 'msgid' at: " + path + ":" + itos(line));
 			} else {
 				break;
 			}
@@ -77,10 +75,8 @@ RES TranslationLoaderPO::load_translation(FileAccess *f, Error *r_error, const S
 		if (l.begins_with("msgid")) {
 
 			if (status == STATUS_READING_ID) {
-
 				memdelete(f);
-				ERR_EXPLAIN(p_path + ":" + itos(line) + " Unexpected 'msgid', was expecting 'msgstr' while parsing: ");
-				ERR_FAIL_V(RES());
+				ERR_FAIL_V_MSG(RES(), "Unexpected 'msgid', was expecting 'msgstr' while parsing: " + path + ":" + itos(line));
 			}
 
 			if (msg_id != "") {
@@ -100,10 +96,8 @@ RES TranslationLoaderPO::load_translation(FileAccess *f, Error *r_error, const S
 		if (l.begins_with("msgstr")) {
 
 			if (status != STATUS_READING_ID) {
-
 				memdelete(f);
-				ERR_EXPLAIN(p_path + ":" + itos(line) + " Unexpected 'msgstr', was expecting 'msgid' while parsing: ");
-				ERR_FAIL_V(RES());
+				ERR_FAIL_V_MSG(RES(), "Unexpected 'msgstr', was expecting 'msgid' while parsing: " + path + ":" + itos(line));
 			}
 
 			l = l.substr(6, l.length()).strip_edges();
@@ -119,9 +113,8 @@ RES TranslationLoaderPO::load_translation(FileAccess *f, Error *r_error, const S
 		}
 
 		if (!l.begins_with("\"") || status == STATUS_NONE) {
-			//not a string? failure!
-			ERR_EXPLAIN(p_path + ":" + itos(line) + " Invalid line '" + l + "' while parsing: ");
-			ERR_FAIL_V(RES());
+			memdelete(f);
+			ERR_FAIL_V_MSG(RES(), "Invalid line '" + l + "' while parsing: " + path + ":" + itos(line));
 		}
 
 		l = l.substr(1, l.length());
@@ -136,8 +129,8 @@ RES TranslationLoaderPO::load_translation(FileAccess *f, Error *r_error, const S
 		}
 
 		if (end_pos == -1) {
-			ERR_EXPLAIN(p_path + ":" + itos(line) + " Expected '\"' at end of message while parsing file: ");
-			ERR_FAIL_V(RES());
+			memdelete(f);
+			ERR_FAIL_V_MSG(RES(), "Expected '\"' at end of message while parsing: " + path + ":" + itos(line));
 		}
 
 		l = l.substr(0, end_pos);
@@ -151,7 +144,6 @@ RES TranslationLoaderPO::load_translation(FileAccess *f, Error *r_error, const S
 		line++;
 	}
 
-	f->close();
 	memdelete(f);
 
 	if (status == STATUS_READING_STRING) {
@@ -163,10 +155,7 @@ RES TranslationLoaderPO::load_translation(FileAccess *f, Error *r_error, const S
 			config = msg_str;
 	}
 
-	if (config == "") {
-		ERR_EXPLAIN("No config found in file: " + p_path);
-		ERR_FAIL_V(RES());
-	}
+	ERR_FAIL_COND_V_MSG(config == "", RES(), "No config found in file: " + path + ".");
 
 	Vector<String> configs = config.split("\n");
 	for (int i = 0; i < configs.size(); i++) {
@@ -195,7 +184,7 @@ RES TranslationLoaderPO::load(const String &p_path, const String &p_original_pat
 		*r_error = ERR_CANT_OPEN;
 
 	FileAccess *f = FileAccess::open(p_path, FileAccess::READ);
-	ERR_FAIL_COND_V(!f, RES());
+	ERR_FAIL_COND_V_MSG(!f, RES(), "Cannot open file '" + p_path + "'.");
 
 	return load_translation(f, r_error);
 }
@@ -203,7 +192,6 @@ RES TranslationLoaderPO::load(const String &p_path, const String &p_original_pat
 void TranslationLoaderPO::get_recognized_extensions(List<String> *p_extensions) const {
 
 	p_extensions->push_back("po");
-	//p_extensions->push_back("mo"); //mo in the future...
 }
 bool TranslationLoaderPO::handles_type(const String &p_type) const {
 

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -149,6 +149,7 @@ public:
 		bool tool;
 		StringName name;
 		bool extends_used;
+		bool classname_used;
 		StringName extends_file;
 		Vector<StringName> extends_class;
 		DataType base_type;
@@ -198,6 +199,7 @@ public:
 			tool = false;
 			type = TYPE_CLASS;
 			extends_used = false;
+			classname_used = false;
 			end_line = -1;
 			owner = NULL;
 		}
@@ -238,7 +240,9 @@ public:
 		BlockNode *parent_block;
 		List<Node *> statements;
 		Map<StringName, LocalVarNode *> variables;
-		bool has_return;
+		bool has_return = false;
+		bool can_break = false;
+		bool can_continue = false;
 
 		Node *if_condition; //tiny hack to improve code completion on if () blocks
 
@@ -251,7 +255,6 @@ public:
 			end_line = -1;
 			parent_block = NULL;
 			parent_class = NULL;
-			has_return = false;
 		}
 	};
 
@@ -479,7 +482,12 @@ public:
 
 	struct AssertNode : public Node {
 		Node *condition;
-		AssertNode() { type = TYPE_ASSERT; }
+		Node *message;
+		AssertNode() :
+				condition(0),
+				message(0) {
+			type = TYPE_ASSERT;
+		}
 	};
 
 	struct BreakpointNode : public Node {
@@ -505,6 +513,7 @@ public:
 		COMPLETION_GET_NODE,
 		COMPLETION_FUNCTION,
 		COMPLETION_IDENTIFIER,
+		COMPLETION_EXTENDS,
 		COMPLETION_PARENT_FUNCTION,
 		COMPLETION_METHOD,
 		COMPLETION_CALL_ARGUMENTS,
@@ -545,7 +554,27 @@ private:
 
 	int pending_newline;
 
-	List<int> tab_level;
+	struct IndentLevel {
+		int indent;
+		int tabs;
+
+		bool is_mixed(IndentLevel other) {
+			return (
+					(indent == other.indent && tabs != other.tabs) ||
+					(indent > other.indent && tabs < other.tabs) ||
+					(indent < other.indent && tabs > other.tabs));
+		}
+
+		IndentLevel() :
+				indent(0),
+				tabs(0) {}
+
+		IndentLevel(int p_indent, int p_tabs) :
+				indent(p_indent),
+				tabs(p_tabs) {}
+	};
+
+	List<IndentLevel> indent_level;
 
 	String base_path;
 	String self_path;
@@ -580,12 +609,13 @@ private:
 #endif // DEBUG_ENABLED
 	bool _recover_from_completion();
 
-	bool _parse_arguments(Node *p_parent, Vector<Node *> &p_args, bool p_static, bool p_can_codecomplete = false);
+	bool _parse_arguments(Node *p_parent, Vector<Node *> &p_args, bool p_static, bool p_can_codecomplete = false, bool p_parsing_constant = false);
 	bool _enter_indent_block(BlockNode *p_block = NULL);
 	bool _parse_newline();
 	Node *_parse_expression(Node *p_parent, bool p_static, bool p_allow_assign = false, bool p_parsing_constant = false);
 	Node *_reduce_expression(Node *p_node, bool p_to_const = false);
 	Node *_parse_and_reduce_expression(Node *p_parent, bool p_static, bool p_reduce_const = false, bool p_allow_assign = false);
+	bool _reduce_export_var_type(Variant &p_value, int p_line = 0);
 
 	PatternNode *_parse_pattern(bool p_static);
 	void _parse_pattern_block(BlockNode *p_block, Vector<PatternBranchNode *> &p_branches, bool p_static);
@@ -596,8 +626,9 @@ private:
 	void _parse_extends(ClassNode *p_class);
 	void _parse_class(ClassNode *p_class);
 	bool _end_statement();
+	void _set_end_statement_error(String p_name);
 
-	void _determine_inheritance(ClassNode *p_class);
+	void _determine_inheritance(ClassNode *p_class, bool p_recursive = true);
 	bool _parse_type(DataType &r_type, bool p_can_be_void = false);
 	DataType _resolve_type(const DataType &p_source, int p_line);
 	DataType _type_from_variant(const Variant &p_value) const;
@@ -606,8 +637,9 @@ private:
 	DataType _get_operation_type(const Variant::Operator p_op, const DataType &p_a, const DataType &p_b, bool &r_valid) const;
 	Variant::Operator _get_variant_operation(const OperatorNode::Operator &p_op) const;
 	bool _get_function_signature(DataType &p_base_type, const StringName &p_function, DataType &r_return_type, List<DataType> &r_arg_types, int &r_default_arg_count, bool &r_static, bool &r_vararg) const;
-	bool _get_member_type(const DataType &p_base_type, const StringName &p_member, DataType &r_member_type) const;
+	bool _get_member_type(const DataType &p_base_type, const StringName &p_member, DataType &r_member_type, bool *r_is_const = nullptr) const;
 	bool _is_type_compatible(const DataType &p_container, const DataType &p_expression, bool p_allow_implicit_conversion = false) const;
+	Node *_get_default_value_for_type(const DataType &p_type, int p_line = -1);
 
 	DataType _reduce_node_type(Node *p_node);
 	DataType _reduce_function_call_type(const OperatorNode *p_call);
@@ -630,6 +662,7 @@ private:
 	Error _parse(const String &p_base_path);
 
 public:
+	bool has_error() const;
 	String get_error() const;
 	int get_error_line() const;
 	int get_error_column() const;

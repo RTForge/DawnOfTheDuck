@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -65,12 +65,13 @@ void CollisionPolygon2D::_build_polygon() {
 		segments.resize(polygon.size() * 2);
 		PoolVector<Vector2>::Write w = segments.write();
 
-		for (int i = 0; i < polygon.size(); i++) {
+		int polygon_count = polygon.size();
+		for (int i = 0; i < polygon_count; i++) {
 			w[(i << 1) + 0] = polygon[i];
-			w[(i << 1) + 1] = polygon[(i + 1) % polygon.size()];
+			w[(i << 1) + 1] = polygon[(i + 1) % polygon_count];
 		}
 
-		w = PoolVector<Vector2>::Write();
+		w.release();
 		concave->set_segments(segments);
 
 		parent->shape_owner_add_shape(owner_id, concave);
@@ -139,10 +140,11 @@ void CollisionPolygon2D::_notification(int p_what) {
 				break;
 			}
 
-			for (int i = 0; i < polygon.size(); i++) {
+			int polygon_count = polygon.size();
+			for (int i = 0; i < polygon_count; i++) {
 
 				Vector2 p = polygon[i];
-				Vector2 n = polygon[(i + 1) % polygon.size()];
+				Vector2 n = polygon[(i + 1) % polygon_count];
 				// draw line with width <= 1, so it does not scale with zoom and break pixel exact editing
 				draw_line(p, n, Color(0.9, 0.2, 0.0, 0.8), 1);
 			}
@@ -169,8 +171,8 @@ void CollisionPolygon2D::_notification(int p_what) {
 				Vector<Vector2> pts;
 				float tsize = 8;
 				pts.push_back(line_to + (Vector2(0, tsize)));
-				pts.push_back(line_to + (Vector2(0.707 * tsize, 0)));
-				pts.push_back(line_to + (Vector2(-0.707 * tsize, 0)));
+				pts.push_back(line_to + (Vector2(Math_SQRT12 * tsize, 0)));
+				pts.push_back(line_to + (Vector2(-Math_SQRT12 * tsize, 0)));
 				Vector<Color> cols;
 				for (int i = 0; i < 3; i++)
 					cols.push_back(dcol);
@@ -227,6 +229,7 @@ CollisionPolygon2D::BuildMode CollisionPolygon2D::get_build_mode() const {
 	return build_mode;
 }
 
+#ifdef TOOLS_ENABLED
 Rect2 CollisionPolygon2D::_edit_get_rect() const {
 
 	return aabb;
@@ -240,6 +243,7 @@ bool CollisionPolygon2D::_edit_is_selected_on_click(const Point2 &p_point, doubl
 
 	return Geometry::is_point_in_polygon(p_point, Variant(polygon));
 }
+#endif
 
 String CollisionPolygon2D::get_configuration_warning() const {
 

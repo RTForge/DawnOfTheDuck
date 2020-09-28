@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,6 +30,8 @@
 
 #ifdef X11_ENABLED
 #if defined(OPENGL_ENABLED)
+
+#include "detect_prime.h"
 
 #include "core/print_string.h"
 #include "core/ustring.h"
@@ -62,6 +64,7 @@ vendor vendormap[] = {
 	{ "NVIDIA Corporation", 30 },
 	{ "X.Org", 30 },
 	{ "Intel Open Source Technology Center", 20 },
+	{ "Intel", 20 },
 	{ "nouveau", 10 },
 	{ "Mesa Project", 0 },
 	{ NULL, 0 }
@@ -159,10 +162,11 @@ int detect_prime() {
 			if (!stat_loc) {
 				// No need to do anything complicated here. Anything less than
 				// PIPE_BUF will be delivered in one read() call.
-				read(fdset[0], string, sizeof(string) - 1);
-
-				vendors[i] = string;
-				renderers[i] = string + strlen(string) + 1;
+				// Leave it 'Unknown' otherwise.
+				if (read(fdset[0], string, sizeof(string) - 1) > 0) {
+					vendors[i] = string;
+					renderers[i] = string + strlen(string) + 1;
+				}
 			}
 
 			close(fdset[0]);
@@ -190,8 +194,9 @@ int detect_prime() {
 			memcpy(&string, vendor, vendor_len);
 			memcpy(&string[vendor_len], renderer, renderer_len);
 
-			write(fdset[1], string, vendor_len + renderer_len);
-
+			if (write(fdset[1], string, vendor_len + renderer_len) == -1) {
+				print_verbose("Couldn't write vendor/renderer string.");
+			}
 			close(fdset[1]);
 			exit(0);
 		}

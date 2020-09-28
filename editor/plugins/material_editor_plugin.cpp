@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,12 +30,11 @@
 
 #include "material_editor_plugin.h"
 
+#include "editor/editor_scale.h"
+#include "scene/gui/viewport_container.h"
 #include "scene/resources/particles_material.h"
 
 void MaterialEditor::_notification(int p_what) {
-
-	if (p_what == NOTIFICATION_PHYSICS_PROCESS) {
-	}
 
 	if (p_what == NOTIFICATION_READY) {
 
@@ -95,6 +94,7 @@ void MaterialEditor::_button_pressed(Node *p_button) {
 		sphere_instance->hide();
 		box_switch->set_pressed(true);
 		sphere_switch->set_pressed(false);
+		EditorSettings::get_singleton()->set_project_metadata("inspector_options", "material_preview_on_sphere", false);
 	}
 
 	if (p_button == sphere_switch) {
@@ -102,6 +102,7 @@ void MaterialEditor::_button_pressed(Node *p_button) {
 		sphere_instance->show();
 		box_switch->set_pressed(false);
 		sphere_switch->set_pressed(true);
+		EditorSettings::get_singleton()->set_project_metadata("inspector_options", "material_preview_on_sphere", true);
 	}
 }
 
@@ -157,7 +158,6 @@ MaterialEditor::MaterialEditor() {
 	sphere_instance->set_mesh(sphere_mesh);
 	box_mesh.instance();
 	box_instance->set_mesh(box_mesh);
-	box_instance->hide();
 
 	set_custom_minimum_size(Size2(1, 150) * EDSCALE);
 
@@ -196,6 +196,15 @@ MaterialEditor::MaterialEditor() {
 	light_2_switch->connect("pressed", this, "_button_pressed", varray(light_2_switch));
 
 	first_enter = true;
+
+	if (EditorSettings::get_singleton()->get_project_metadata("inspector_options", "material_preview_on_sphere", true)) {
+		box_instance->hide();
+	} else {
+		box_instance->show();
+		sphere_instance->hide();
+		box_switch->set_pressed(true);
+		sphere_switch->set_pressed(false);
+	}
 }
 
 ///////////////////////

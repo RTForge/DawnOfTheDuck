@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -150,8 +150,7 @@ void VisibilityEnabler::_find_nodes(Node *p_node) {
 	bool add = false;
 	Variant meta;
 
-	if (enabler[ENABLER_FREEZE_BODIES]) {
-
+	{
 		RigidBody *rb = Object::cast_to<RigidBody>(p_node);
 		if (rb && ((rb->get_mode() == RigidBody::MODE_CHARACTER || rb->get_mode() == RigidBody::MODE_RIGID))) {
 
@@ -160,8 +159,7 @@ void VisibilityEnabler::_find_nodes(Node *p_node) {
 		}
 	}
 
-	if (enabler[ENABLER_PAUSE_ANIMATIONS]) {
-
+	{
 		AnimationPlayer *ap = Object::cast_to<AnimationPlayer>(p_node);
 		if (ap) {
 			add = true;
@@ -219,14 +217,14 @@ void VisibilityEnabler::_change_node_state(Node *p_node, bool p_enabled) {
 
 	ERR_FAIL_COND(!nodes.has(p_node));
 
-	{
+	if (enabler[ENABLER_FREEZE_BODIES]) {
 		RigidBody *rb = Object::cast_to<RigidBody>(p_node);
 		if (rb)
 
 			rb->set_sleeping(!p_enabled);
 	}
 
-	{
+	if (enabler[ENABLER_PAUSE_ANIMATIONS]) {
 		AnimationPlayer *ap = Object::cast_to<AnimationPlayer>(p_node);
 
 		if (ap) {
@@ -240,7 +238,6 @@ void VisibilityEnabler::_node_removed(Node *p_node) {
 
 	if (!visible)
 		_change_node_state(p_node, true);
-	p_node->disconnect(SceneStringNames::get_singleton()->tree_exiting, this, "_node_removed");
 	nodes.erase(p_node);
 }
 

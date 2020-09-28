@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -76,10 +76,12 @@ private:
 	float pixel_size;
 	AABB aabb;
 
-	RID immediate;
+	RID mesh;
+	RID material;
 
 	bool flags[FLAG_MAX];
 	AlphaCutMode alpha_cut;
+	SpatialMaterial::BillboardMode billboard_mode;
 	bool pending_update;
 	void _im_update();
 
@@ -91,7 +93,14 @@ protected:
 	static void _bind_methods();
 	virtual void _draw() = 0;
 	_FORCE_INLINE_ void set_aabb(const AABB &p_aabb) { aabb = p_aabb; }
-	_FORCE_INLINE_ RID &get_immediate() { return immediate; }
+	_FORCE_INLINE_ RID &get_mesh() { return mesh; }
+	_FORCE_INLINE_ RID &get_material() { return material; }
+
+	uint32_t mesh_surface_offsets[VS::ARRAY_MAX];
+	PoolByteArray mesh_buffer;
+	uint32_t mesh_stride;
+	uint32_t mesh_surface_format;
+
 	void _queue_update();
 
 public:
@@ -130,6 +139,8 @@ public:
 
 	void set_alpha_cut_mode(AlphaCutMode p_mode);
 	AlphaCutMode get_alpha_cut_mode() const;
+	void set_billboard_mode(SpatialMaterial::BillboardMode p_mode);
+	SpatialMaterial::BillboardMode get_billboard_mode() const;
 
 	virtual Rect2 get_item_rect() const = 0;
 
@@ -172,6 +183,9 @@ public:
 
 	void set_frame(int p_frame);
 	int get_frame() const;
+
+	void set_frame_coords(const Vector2 &p_coord);
+	Vector2 get_frame_coords() const;
 
 	void set_vframes(int p_amount);
 	int get_vframes() const;

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -136,18 +136,13 @@ void CSGShape::_make_dirty() {
 	if (!is_inside_tree())
 		return;
 
-	if (dirty) {
-		return;
+	if (parent) {
+		parent->_make_dirty();
+	} else if (!dirty) {
+		call_deferred("_update_shape");
 	}
 
 	dirty = true;
-
-	if (parent) {
-		parent->_make_dirty();
-	} else {
-		//only parent will do
-		call_deferred("_update_shape");
-	}
 }
 
 CSGBrush *CSGShape::_get_brush() {
@@ -282,7 +277,7 @@ void CSGShape::_update_shape() {
 	root_mesh.unref(); //byebye root mesh
 
 	CSGBrush *n = _get_brush();
-	ERR_FAIL_COND(!n);
+	ERR_FAIL_COND_MSG(!n, "Cannot get CSGBrush.");
 
 	OAHashMap<Vector3, Vector3> vec_map;
 
@@ -296,20 +291,18 @@ void CSGShape::_update_shape() {
 		int mat = n->faces[i].material;
 		ERR_CONTINUE(mat < -1 || mat >= face_count.size());
 		int idx = mat == -1 ? face_count.size() - 1 : mat;
-		if (n->faces[i].smooth) {
 
-			Plane p(n->faces[i].vertices[0], n->faces[i].vertices[1], n->faces[i].vertices[2]);
+		Plane p(n->faces[i].vertices[0], n->faces[i].vertices[1], n->faces[i].vertices[2]);
 
-			for (int j = 0; j < 3; j++) {
-				Vector3 v = n->faces[i].vertices[j];
-				Vector3 add;
-				if (vec_map.lookup(v, add)) {
-					add += p.normal;
-				} else {
-					add = p.normal;
-				}
-				vec_map.set(v, add);
+		for (int j = 0; j < 3; j++) {
+			Vector3 v = n->faces[i].vertices[j];
+			Vector3 add;
+			if (vec_map.lookup(v, add)) {
+				add += p.normal;
+			} else {
+				add = p.normal;
 			}
+			vec_map.set(v, add);
 		}
 
 		face_count.write[idx]++;
@@ -342,20 +335,12 @@ void CSGShape::_update_shape() {
 		}
 	}
 
-	//fill arrays
-	PoolVector<Vector3> physics_faces;
-	bool fill_physics_faces = false;
+	// Update collision faces.
 	if (root_collision_shape.is_valid()) {
+
+		PoolVector<Vector3> physics_faces;
 		physics_faces.resize(n->faces.size() * 3);
-		fill_physics_faces = true;
-	}
-
-	{
-		PoolVector<Vector3>::Write physicsw;
-
-		if (fill_physics_faces) {
-			physicsw = physics_faces.write();
-		}
+		PoolVector<Vector3>::Write physicsw = physics_faces.write();
 
 		for (int i = 0; i < n->faces.size(); i++) {
 
@@ -365,10 +350,22 @@ void CSGShape::_update_shape() {
 				SWAP(order[1], order[2]);
 			}
 
-			if (fill_physics_faces) {
-				physicsw[i * 3 + 0] = n->faces[i].vertices[order[0]];
-				physicsw[i * 3 + 1] = n->faces[i].vertices[order[1]];
-				physicsw[i * 3 + 2] = n->faces[i].vertices[order[2]];
+			physicsw[i * 3 + 0] = n->faces[i].vertices[order[0]];
+			physicsw[i * 3 + 1] = n->faces[i].vertices[order[1]];
+			physicsw[i * 3 + 2] = n->faces[i].vertices[order[2]];
+		}
+
+		root_collision_shape->set_faces(physics_faces);
+	}
+
+	//fill arrays
+	{
+		for (int i = 0; i < n->faces.size(); i++) {
+
+			int order[3] = { 0, 1, 2 };
+
+			if (n->faces[i].invert) {
+				SWAP(order[1], order[2]);
 			}
 
 			int mat = n->faces[i].material;
@@ -436,10 +433,10 @@ void CSGShape::_update_shape() {
 		}
 
 		// unset write access
-		surfaces.write[i].verticesw = PoolVector<Vector3>::Write();
-		surfaces.write[i].normalsw = PoolVector<Vector3>::Write();
-		surfaces.write[i].uvsw = PoolVector<Vector2>::Write();
-		surfaces.write[i].tansw = PoolVector<float>::Write();
+		surfaces.write[i].verticesw.release();
+		surfaces.write[i].normalsw.release();
+		surfaces.write[i].uvsw.release();
+		surfaces.write[i].tansw.release();
 
 		if (surfaces[i].last_added == 0)
 			continue;
@@ -458,10 +455,6 @@ void CSGShape::_update_shape() {
 		int idx = root_mesh->get_surface_count();
 		root_mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, array);
 		root_mesh->surface_set_material(idx, surfaces[i].material);
-	}
-
-	if (root_collision_shape.is_valid()) {
-		root_collision_shape->set_faces(physics_faces);
 	}
 
 	set_base(root_mesh->get_rid());
@@ -557,6 +550,7 @@ void CSGShape::set_operation(Operation p_operation) {
 
 	operation = p_operation;
 	_make_dirty();
+	update_gizmo();
 }
 
 CSGShape::Operation CSGShape::get_operation() const {
@@ -724,6 +718,7 @@ CSGBrush *CSGMesh::_build_brush() {
 	PoolVector<bool> smooth;
 	PoolVector<Ref<Material> > materials;
 	PoolVector<Vector2> uvs;
+	Ref<Material> material = get_material();
 
 	for (int i = 0; i < mesh->get_surface_count(); i++) {
 
@@ -760,7 +755,12 @@ CSGBrush *CSGMesh::_build_brush() {
 			uvr_used = true;
 		}
 
-		Ref<Material> mat = mesh->surface_get_material(i);
+		Ref<Material> mat;
+		if (material.is_valid()) {
+			mat = material;
+		} else {
+			mat = mesh->surface_get_material(i);
+		}
 
 		PoolVector<int> aindices = arrays[Mesh::ARRAY_INDEX];
 		if (aindices.size()) {
@@ -806,8 +806,8 @@ CSGBrush *CSGMesh::_build_brush() {
 				uvw[as + j + 1] = uv[1];
 				uvw[as + j + 2] = uv[2];
 
-				sw[j / 3] = !flat;
-				mw[j / 3] = mat;
+				sw[(as + j) / 3] = !flat;
+				mw[(as + j) / 3] = mat;
 			}
 		} else {
 			int as = vertices.size();
@@ -849,8 +849,8 @@ CSGBrush *CSGMesh::_build_brush() {
 				uvw[as + j + 1] = uv[1];
 				uvw[as + j + 2] = uv[2];
 
-				sw[j / 3] = !flat;
-				mw[j / 3] = mat;
+				sw[(as + j) / 3] = !flat;
+				mw[(as + j) / 3] = mat;
 			}
 		}
 	}
@@ -866,6 +866,18 @@ void CSGMesh::_mesh_changed() {
 	update_gizmo();
 }
 
+void CSGMesh::set_material(const Ref<Material> &p_material) {
+	if (material == p_material)
+		return;
+	material = p_material;
+	_make_dirty();
+}
+
+Ref<Material> CSGMesh::get_material() const {
+
+	return material;
+}
+
 void CSGMesh::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_mesh", "mesh"), &CSGMesh::set_mesh);
@@ -873,7 +885,11 @@ void CSGMesh::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("_mesh_changed"), &CSGMesh::_mesh_changed);
 
+	ClassDB::bind_method(D_METHOD("set_material", "material"), &CSGMesh::set_material);
+	ClassDB::bind_method(D_METHOD("get_material"), &CSGMesh::get_material);
+
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "mesh", PROPERTY_HINT_RESOURCE_TYPE, "Mesh"), "set_mesh", "get_mesh");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "material", PROPERTY_HINT_RESOURCE_TYPE, "SpatialMaterial,ShaderMaterial"), "set_material", "get_material");
 }
 
 void CSGMesh::set_mesh(const Ref<Mesh> &p_mesh) {
@@ -1044,6 +1060,7 @@ void CSGSphere::set_radius(const float p_radius) {
 	radius = p_radius;
 	_make_dirty();
 	update_gizmo();
+	_change_notify("radius");
 }
 
 float CSGSphere::get_radius() const {
@@ -1228,6 +1245,7 @@ void CSGBox::set_width(const float p_width) {
 	width = p_width;
 	_make_dirty();
 	update_gizmo();
+	_change_notify("width");
 }
 
 float CSGBox::get_width() const {
@@ -1238,6 +1256,7 @@ void CSGBox::set_height(const float p_height) {
 	height = p_height;
 	_make_dirty();
 	update_gizmo();
+	_change_notify("height");
 }
 
 float CSGBox::get_height() const {
@@ -1248,6 +1267,7 @@ void CSGBox::set_depth(const float p_depth) {
 	depth = p_depth;
 	_make_dirty();
 	update_gizmo();
+	_change_notify("depth");
 }
 
 float CSGBox::get_depth() const {
@@ -1442,6 +1462,7 @@ void CSGCylinder::set_radius(const float p_radius) {
 	radius = p_radius;
 	_make_dirty();
 	update_gizmo();
+	_change_notify("radius");
 }
 
 float CSGCylinder::get_radius() const {
@@ -1452,6 +1473,7 @@ void CSGCylinder::set_height(const float p_height) {
 	height = p_height;
 	_make_dirty();
 	update_gizmo();
+	_change_notify("height");
 }
 
 float CSGCylinder::get_height() const {
@@ -1667,6 +1689,7 @@ void CSGTorus::set_inner_radius(const float p_inner_radius) {
 	inner_radius = p_inner_radius;
 	_make_dirty();
 	update_gizmo();
+	_change_notify("inner_radius");
 }
 
 float CSGTorus::get_inner_radius() const {
@@ -1677,6 +1700,7 @@ void CSGTorus::set_outer_radius(const float p_outer_radius) {
 	outer_radius = p_outer_radius;
 	_make_dirty();
 	update_gizmo();
+	_change_notify("outer_radius");
 }
 
 float CSGTorus::get_outer_radius() const {
@@ -1794,11 +1818,9 @@ CSGBrush *CSGPolygon::_build_brush() {
 
 			path_cache = path;
 
-			if (path_cache) {
-				path_cache->connect("tree_exited", this, "_path_exited");
-				path_cache->connect("curve_changed", this, "_path_changed");
-				path_cache = NULL;
-			}
+			path_cache->connect("tree_exited", this, "_path_exited");
+			path_cache->connect("curve_changed", this, "_path_changed");
+			path_cache = NULL;
 		}
 		curve = path->get_curve();
 		if (curve.is_null())
@@ -2060,6 +2082,9 @@ CSGBrush *CSGPolygon::_build_brush() {
 				for (int i = 0; i <= splits; i++) {
 
 					float ofs = i * path_interval;
+					if (ofs > bl) {
+						ofs = bl;
+					}
 					if (i == splits && path_joined) {
 						ofs = 0.0;
 					}
@@ -2383,7 +2408,7 @@ NodePath CSGPolygon::get_path_node() const {
 }
 
 void CSGPolygon::set_path_interval(float p_interval) {
-	ERR_FAIL_COND(p_interval < 0.001);
+	ERR_FAIL_COND_MSG(p_interval < 0.001, "Path interval cannot be smaller than 0.001.");
 	path_interval = p_interval;
 	_make_dirty();
 	update_gizmo();

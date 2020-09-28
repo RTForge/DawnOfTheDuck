@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -37,20 +37,20 @@
 #ifndef _3D_DISABLED
 
 FabrikInverseKinematic::ChainItem *FabrikInverseKinematic::ChainItem::find_child(const BoneId p_bone_id) {
-	for (int i = childs.size() - 1; 0 <= i; --i) {
-		if (p_bone_id == childs[i].bone) {
-			return &childs.write[i];
+	for (int i = children.size() - 1; 0 <= i; --i) {
+		if (p_bone_id == children[i].bone) {
+			return &children.write[i];
 		}
 	}
 	return NULL;
 }
 
 FabrikInverseKinematic::ChainItem *FabrikInverseKinematic::ChainItem::add_child(const BoneId p_bone_id) {
-	const int infant_child_id = childs.size();
-	childs.resize(infant_child_id + 1);
-	childs.write[infant_child_id].bone = p_bone_id;
-	childs.write[infant_child_id].parent_item = this;
-	return &childs.write[infant_child_id];
+	const int infant_child_id = children.size();
+	children.resize(infant_child_id + 1);
+	children.write[infant_child_id].bone = p_bone_id;
+	children.write[infant_child_id].parent_item = this;
+	return &children.write[infant_child_id];
 }
 
 /// Build a chain that starts from the root to tip
@@ -144,8 +144,9 @@ void FabrikInverseKinematic::update_chain(const Skeleton *p_sk, ChainItem *p_cha
 	p_chain_item->initial_transform = p_sk->get_bone_global_pose(p_chain_item->bone);
 	p_chain_item->current_pos = p_chain_item->initial_transform.origin;
 
-	for (int i = p_chain_item->childs.size() - 1; 0 <= i; --i) {
-		update_chain(p_sk, &p_chain_item->childs.write[i]);
+	ChainItem *items = p_chain_item->children.ptrw();
+	for (int i = 0; i < p_chain_item->children.size(); i += 1) {
+		update_chain(p_sk, items + i);
 	}
 }
 
@@ -210,9 +211,9 @@ void FabrikInverseKinematic::solve_simple_forwards(Chain &r_chain, bool p_solve_
 	while (sub_chain_root) { // Reach the tip
 		sub_chain_root->current_pos = origin;
 
-		if (!sub_chain_root->childs.empty()) {
+		if (!sub_chain_root->children.empty()) {
 
-			ChainItem &child(sub_chain_root->childs.write[0]);
+			ChainItem &child(sub_chain_root->children.write[0]);
 
 			// Is not tip
 			// So calculate next origin location
@@ -273,7 +274,7 @@ void FabrikInverseKinematic::make_goal(Task *p_task, const Transform &p_inverse_
 	} else {
 
 		// End effector in local transform
-		const Transform end_effector_pose(p_task->skeleton->get_bone_global_pose(p_task->end_effectors.write[0].tip_bone));
+		const Transform end_effector_pose(p_task->skeleton->get_bone_global_pose(p_task->end_effectors[0].tip_bone));
 
 		// Update the end_effector (local transform) by blending with current pose
 		p_task->end_effectors.write[0].goal_transform = end_effector_pose.interpolate_with(p_inverse_transf * p_task->goal_global_transform, blending_delta);
@@ -284,6 +285,16 @@ void FabrikInverseKinematic::solve(Task *p_task, real_t blending_delta, bool ove
 
 	if (blending_delta <= 0.01f) {
 		return; // Skip solving
+	}
+
+	p_task->skeleton->set_bone_global_pose_override(p_task->chain.chain_root.bone, Transform(), 0.0, true);
+
+	if (p_task->chain.middle_chain_item) {
+		p_task->skeleton->set_bone_global_pose_override(p_task->chain.middle_chain_item->bone, Transform(), 0.0, true);
+	}
+
+	for (int i = 0; i < p_task->chain.tips.size(); i += 1) {
+		p_task->skeleton->set_bone_global_pose_override(p_task->chain.tips[i].chain_item->bone, Transform(), 0.0, true);
 	}
 
 	make_goal(p_task, p_task->skeleton->get_global_transform().affine_inverse().scaled(p_task->skeleton->get_global_transform().get_basis().get_scale()), blending_delta);
@@ -302,10 +313,10 @@ void FabrikInverseKinematic::solve(Task *p_task, real_t blending_delta, bool ove
 		Transform new_bone_pose(ci->initial_transform);
 		new_bone_pose.origin = ci->current_pos;
 
-		if (!ci->childs.empty()) {
+		if (!ci->children.empty()) {
 
 			/// Rotate basis
-			const Vector3 initial_ori((ci->childs[0].initial_transform.origin - ci->initial_transform.origin).normalized());
+			const Vector3 initial_ori((ci->children[0].initial_transform.origin - ci->initial_transform.origin).normalized());
 			const Vector3 rot_axis(initial_ori.cross(ci->current_ori).normalized());
 
 			if (rot_axis[0] != 0 && rot_axis[1] != 0 && rot_axis[2] != 0) {
@@ -320,10 +331,14 @@ void FabrikInverseKinematic::solve(Task *p_task, real_t blending_delta, bool ove
 				new_bone_pose.basis = new_bone_pose.basis * p_task->chain.tips[0].end_effector->goal_transform.basis;
 		}
 
-		p_task->skeleton->set_bone_global_pose(ci->bone, new_bone_pose);
+		// IK should not affect scale, so undo any scaling
+		new_bone_pose.basis.orthonormalize();
+		new_bone_pose.basis.scale(p_task->skeleton->get_bone_global_pose(ci->bone).basis.get_scale());
 
-		if (!ci->childs.empty())
-			ci = &ci->childs.write[0];
+		p_task->skeleton->set_bone_global_pose_override(ci->bone, new_bone_pose, 1.0, true);
+
+		if (!ci->children.empty())
+			ci = &ci->children.write[0];
 		else
 			ci = NULL;
 	}
@@ -335,7 +350,7 @@ void SkeletonIK::_validate_property(PropertyInfo &property) const {
 
 		if (skeleton) {
 
-			String names;
+			String names("--,");
 			for (int i = 0; i < skeleton->get_bone_count(); i++) {
 				if (i > 0)
 					names += ",";
@@ -406,6 +421,7 @@ void SkeletonIK::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_ENTER_TREE: {
 			skeleton = Object::cast_to<Skeleton>(get_parent());
+			set_process_priority(1);
 			reload_chain();
 		} break;
 		case NOTIFICATION_INTERNAL_PROCESS: {
@@ -423,7 +439,6 @@ void SkeletonIK::_notification(int p_what) {
 }
 
 SkeletonIK::SkeletonIK() :
-		Node(),
 		interpolation(1),
 		override_tip_basis(true),
 		use_magnet(false),
@@ -432,8 +447,6 @@ SkeletonIK::SkeletonIK() :
 		skeleton(NULL),
 		target_node_override(NULL),
 		task(NULL) {
-
-	set_process_priority(1);
 }
 
 SkeletonIK::~SkeletonIK() {
@@ -525,6 +538,11 @@ bool SkeletonIK::is_running() {
 void SkeletonIK::start(bool p_one_time) {
 	if (p_one_time) {
 		set_process_internal(false);
+
+		if (target_node_override) {
+			reload_goal();
+		}
+
 		_solve_chain();
 	} else {
 		set_process_internal(true);

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -67,10 +67,19 @@ RES ResourceFormatDummyTexture::load(const String &p_path, const String &p_origi
 }
 
 void ResourceFormatDummyTexture::get_recognized_extensions(List<String> *p_extensions) const {
-	p_extensions->push_back("png");
-	p_extensions->push_back("hdr");
+	p_extensions->push_back("bmp");
+	p_extensions->push_back("dds");
+	p_extensions->push_back("exr");
+	p_extensions->push_back("jpeg");
 	p_extensions->push_back("jpg");
+	p_extensions->push_back("hdr");
+	p_extensions->push_back("pkm");
+	p_extensions->push_back("png");
+	p_extensions->push_back("pvr");
+	p_extensions->push_back("svg");
+	p_extensions->push_back("svgz");
 	p_extensions->push_back("tga");
+	p_extensions->push_back("webp");
 }
 
 bool ResourceFormatDummyTexture::handles_type(const String &p_type) const {
@@ -79,7 +88,22 @@ bool ResourceFormatDummyTexture::handles_type(const String &p_type) const {
 
 String ResourceFormatDummyTexture::get_resource_type(const String &p_path) const {
 	String extension = p_path.get_extension().to_lower();
-	if (extension == "png" || extension == "hdr" || extension == "jpg" || extension == "tga")
+	if (
+			extension == "bmp" ||
+			extension == "dds" ||
+			extension == "exr" ||
+			extension == "jpeg" ||
+			extension == "jpg" ||
+			extension == "hdr" ||
+			extension == "pkm" ||
+			extension == "png" ||
+			extension == "pvr" ||
+			extension == "svg" ||
+			extension == "svgz" ||
+			extension == "tga" ||
+			extension == "webp") {
 		return "ImageTexture";
+	}
+
 	return "";
 }

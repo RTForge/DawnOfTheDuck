@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -145,7 +145,7 @@ void CameraMatrix::set_for_hmd(int p_eye, real_t p_aspect, real_t p_intraocular_
 	f3 *= p_oversample;
 
 	// always apply KEEP_WIDTH aspect ratio
-	f3 *= p_aspect;
+	f3 /= p_aspect;
 
 	switch (p_eye) {
 		case 1: { // left eye
@@ -183,6 +183,10 @@ void CameraMatrix::set_orthogonal(real_t p_size, real_t p_aspect, real_t p_znear
 
 void CameraMatrix::set_frustum(real_t p_left, real_t p_right, real_t p_bottom, real_t p_top, real_t p_near, real_t p_far) {
 
+	ERR_FAIL_COND(p_right <= p_left);
+	ERR_FAIL_COND(p_top <= p_bottom);
+	ERR_FAIL_COND(p_far <= p_near);
+
 	real_t *te = &matrix[0][0];
 	real_t x = 2 * p_near / (p_right - p_left);
 	real_t y = 2 * p_near / (p_top - p_bottom);
@@ -210,6 +214,14 @@ void CameraMatrix::set_frustum(real_t p_left, real_t p_right, real_t p_bottom, r
 	te[15] = 0;
 }
 
+void CameraMatrix::set_frustum(real_t p_size, real_t p_aspect, Vector2 p_offset, real_t p_near, real_t p_far, bool p_flip_fov) {
+	if (!p_flip_fov) {
+		p_size *= p_aspect;
+	}
+
+	set_frustum(-p_size / 2 + p_offset.x, +p_size / 2 + p_offset.x, -p_size / p_aspect / 2 + p_offset.y, +p_size / p_aspect / 2 + p_offset.y, p_near, p_far);
+}
+
 real_t CameraMatrix::get_z_far() const {
 
 	const real_t *matrix = (const real_t *)this->matrix;
@@ -235,7 +247,7 @@ real_t CameraMatrix::get_z_near() const {
 	return new_plane.d;
 }
 
-void CameraMatrix::get_viewport_size(real_t &r_width, real_t &r_height) const {
+Vector2 CameraMatrix::get_viewport_half_extents() const {
 
 	const real_t *matrix = (const real_t *)this->matrix;
 	///////--- Near Plane ---///////
@@ -261,8 +273,7 @@ void CameraMatrix::get_viewport_size(real_t &r_width, real_t &r_height) const {
 	Vector3 res;
 	near_plane.intersect_3(right_plane, top_plane, &res);
 
-	r_width = res.x;
-	r_height = res.y;
+	return Vector2(res.x, res.y);
 }
 
 bool CameraMatrix::get_endpoints(const Transform &p_transform, Vector3 *p_8points) const {
@@ -294,8 +305,8 @@ Vector<Plane> CameraMatrix::get_projection_planes(const Transform &p_transform) 
 
 	/** Fast Plane Extraction from combined modelview/projection matrices.
 	 * References:
-	 * http://www.markmorley.com/opengl/frustumculling.html
-	 * http://www2.ravensoft.com/users/ggribb/plane%20extraction.pdf
+	 * https://web.archive.org/web/20011221205252/http://www.markmorley.com/opengl/frustumculling.html
+	 * https://web.archive.org/web/20061020020112/http://www2.ravensoft.com/users/ggribb/plane%20extraction.pdf
 	 */
 
 	Vector<Plane> planes;
@@ -499,21 +510,21 @@ void CameraMatrix::set_light_bias() {
 
 	real_t *m = &matrix[0][0];
 
-	m[0] = 0.5,
-	m[1] = 0.0,
-	m[2] = 0.0,
-	m[3] = 0.0,
-	m[4] = 0.0,
-	m[5] = 0.5,
-	m[6] = 0.0,
-	m[7] = 0.0,
-	m[8] = 0.0,
-	m[9] = 0.0,
-	m[10] = 0.5,
-	m[11] = 0.0,
-	m[12] = 0.5,
-	m[13] = 0.5,
-	m[14] = 0.5,
+	m[0] = 0.5;
+	m[1] = 0.0;
+	m[2] = 0.0;
+	m[3] = 0.0;
+	m[4] = 0.0;
+	m[5] = 0.5;
+	m[6] = 0.0;
+	m[7] = 0.0;
+	m[8] = 0.0;
+	m[9] = 0.0;
+	m[10] = 0.5;
+	m[11] = 0.0;
+	m[12] = 0.5;
+	m[13] = 0.5;
+	m[14] = 0.5;
 	m[15] = 1.0;
 }
 
@@ -521,21 +532,21 @@ void CameraMatrix::set_light_atlas_rect(const Rect2 &p_rect) {
 
 	real_t *m = &matrix[0][0];
 
-	m[0] = p_rect.size.width,
-	m[1] = 0.0,
-	m[2] = 0.0,
-	m[3] = 0.0,
-	m[4] = 0.0,
-	m[5] = p_rect.size.height,
-	m[6] = 0.0,
-	m[7] = 0.0,
-	m[8] = 0.0,
-	m[9] = 0.0,
-	m[10] = 1.0,
-	m[11] = 0.0,
-	m[12] = p_rect.position.x,
-	m[13] = p_rect.position.y,
-	m[14] = 0.0,
+	m[0] = p_rect.size.width;
+	m[1] = 0.0;
+	m[2] = 0.0;
+	m[3] = 0.0;
+	m[4] = 0.0;
+	m[5] = p_rect.size.height;
+	m[6] = 0.0;
+	m[7] = 0.0;
+	m[8] = 0.0;
+	m[9] = 0.0;
+	m[10] = 1.0;
+	m[11] = 0.0;
+	m[12] = p_rect.position.x;
+	m[13] = p_rect.position.y;
+	m[14] = 0.0;
 	m[15] = 1.0;
 }
 
@@ -551,9 +562,8 @@ CameraMatrix::operator String() const {
 
 real_t CameraMatrix::get_aspect() const {
 
-	real_t w, h;
-	get_viewport_size(w, h);
-	return w / h;
+	Vector2 vp_he = get_viewport_half_extents();
+	return vp_he.x / vp_he.y;
 }
 
 int CameraMatrix::get_pixels_per_meter(int p_for_pixel_width) const {

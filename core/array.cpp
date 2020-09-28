@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -133,12 +133,12 @@ void Array::erase(const Variant &p_value) {
 }
 
 Variant Array::front() const {
-	ERR_FAIL_COND_V(_p->array.size() == 0, Variant());
+	ERR_FAIL_COND_V_MSG(_p->array.size() == 0, Variant(), "Can't take value from empty array.");
 	return operator[](0);
 }
 
 Variant Array::back() const {
-	ERR_FAIL_COND_V(_p->array.size() == 0, Variant());
+	ERR_FAIL_COND_V_MSG(_p->array.size() == 0, Variant(), "Can't take value from empty array.");
 	return operator[](_p->array.size() - 1);
 }
 
@@ -165,8 +165,8 @@ int Array::rfind(const Variant &p_value, int p_from) const {
 
 		if (_p->array[i] == p_value) {
 			return i;
-		};
-	};
+		}
+	}
 
 	return -1;
 }
@@ -186,8 +186,8 @@ int Array::count(const Variant &p_value) const {
 
 		if (_p->array[i] == p_value) {
 			amount++;
-		};
-	};
+		}
+	}
 
 	return amount;
 }
@@ -222,6 +222,56 @@ Array Array::duplicate(bool p_deep) const {
 
 	return new_arr;
 }
+
+int Array::_clamp_slice_index(int p_index) const {
+
+	int arr_size = size();
+	int fixed_index = CLAMP(p_index, -arr_size, arr_size - 1);
+	if (fixed_index < 0) {
+		fixed_index = arr_size + fixed_index;
+	}
+	return fixed_index;
+}
+
+Array Array::slice(int p_begin, int p_end, int p_step, bool p_deep) const { // like python, but inclusive on upper bound
+
+	Array new_arr;
+
+	ERR_FAIL_COND_V_MSG(p_step == 0, new_arr, "Array slice step size cannot be zero.");
+
+	if (empty()) // Don't try to slice empty arrays.
+		return new_arr;
+	if (p_step > 0) {
+		if (p_begin >= size() || p_end < -size())
+			return new_arr;
+	} else { // p_step < 0
+		if (p_begin < -size() || p_end >= size())
+			return new_arr;
+	}
+
+	int begin = _clamp_slice_index(p_begin);
+	int end = _clamp_slice_index(p_end);
+
+	int new_arr_size = MAX(((end - begin + p_step) / p_step), 0);
+	new_arr.resize(new_arr_size);
+
+	if (p_step > 0) {
+		int dest_idx = 0;
+		for (int idx = begin; idx <= end; idx += p_step) {
+			ERR_FAIL_COND_V_MSG(dest_idx < 0 || dest_idx >= new_arr_size, Array(), "Bug in Array slice()");
+			new_arr[dest_idx++] = p_deep ? get(idx).duplicate(p_deep) : get(idx);
+		}
+	} else { // p_step < 0
+		int dest_idx = 0;
+		for (int idx = begin; idx >= end; idx += p_step) {
+			ERR_FAIL_COND_V_MSG(dest_idx < 0 || dest_idx >= new_arr_size, Array(), "Bug in Array slice()");
+			new_arr[dest_idx++] = p_deep ? get(idx).duplicate(p_deep) : get(idx);
+		}
+	}
+
+	return new_arr;
+}
+
 struct _ArrayVariantSort {
 
 	_FORCE_INLINE_ bool operator()(const Variant &p_l, const Variant &p_r) const {
@@ -399,6 +449,10 @@ Variant Array::max() const {
 		}
 	}
 	return maxval;
+}
+
+const void *Array::id() const {
+	return _p->array.ptr();
 }
 
 Array::Array(const Array &p_from) {

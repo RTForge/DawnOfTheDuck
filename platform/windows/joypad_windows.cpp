@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -33,8 +33,9 @@
 #include <oleauto.h>
 #include <wbemidl.h>
 
-#ifndef __GNUC__
-#define __builtin_bswap32 _byteswap_ulong
+#if defined(__GNUC__)
+// Workaround GCC warning from -Wcast-function-type.
+#define GetProcAddress (void *)GetProcAddress
 #endif
 
 DWORD WINAPI _xinput_get_state(DWORD dwUserIndex, XINPUT_STATE *pState) {
@@ -62,18 +63,26 @@ JoypadWindows::JoypadWindows(InputDefault *_input, HWND *hwnd) {
 	for (int i = 0; i < JOYPADS_MAX; i++)
 		attached_joypads[i] = false;
 
-	HRESULT result;
-	result = DirectInput8Create(GetModuleHandle(NULL), DIRECTINPUT_VERSION, IID_IDirectInput8, (void **)&dinput, NULL);
-	if (FAILED(result)) {
-		printf("failed init DINPUT: %ld\n", result);
+	HRESULT result = DirectInput8Create(GetModuleHandle(nullptr), DIRECTINPUT_VERSION, IID_IDirectInput8, (void **)&dinput, nullptr);
+	if (result == DI_OK) {
+		probe_joypads();
+	} else {
+		ERR_PRINT("Couldn't initialize DirectInput. Error: " + itos(result));
+		if (result == DIERR_OUTOFMEMORY) {
+			ERR_PRINT("The Windows DirectInput subsystem could not allocate sufficient memory.");
+			ERR_PRINT("Rebooting your PC may solve this issue.");
+		}
+		// Ensure dinput is still a nullptr.
+		dinput = nullptr;
 	}
-	probe_joypads();
 }
 
 JoypadWindows::~JoypadWindows() {
 
 	close_joypad();
-	dinput->Release();
+	if (dinput) {
+		dinput->Release();
+	}
 	unload_xinput();
 }
 
@@ -103,17 +112,17 @@ bool JoypadWindows::is_xinput_device(const GUID *p_guid) {
 	PRAWINPUTDEVICELIST dev_list = NULL;
 	unsigned int dev_list_count = 0;
 
-	if (GetRawInputDeviceList(NULL, &dev_list_count, sizeof(RAWINPUTDEVICELIST)) == -1) {
+	if (GetRawInputDeviceList(NULL, &dev_list_count, sizeof(RAWINPUTDEVICELIST)) == (UINT)-1) {
 		return false;
 	}
 	dev_list = (PRAWINPUTDEVICELIST)malloc(sizeof(RAWINPUTDEVICELIST) * dev_list_count);
 	if (!dev_list) return false;
 
-	if (GetRawInputDeviceList(dev_list, &dev_list_count, sizeof(RAWINPUTDEVICELIST)) == -1) {
+	if (GetRawInputDeviceList(dev_list, &dev_list_count, sizeof(RAWINPUTDEVICELIST)) == (UINT)-1) {
 		free(dev_list);
 		return false;
 	}
-	for (int i = 0; i < dev_list_count; i++) {
+	for (unsigned int i = 0; i < dev_list_count; i++) {
 
 		RID_DEVICE_INFO rdi;
 		char dev_name[128];
@@ -137,14 +146,15 @@ bool JoypadWindows::is_xinput_device(const GUID *p_guid) {
 
 bool JoypadWindows::setup_dinput_joypad(const DIDEVICEINSTANCE *instance) {
 
+	ERR_FAIL_NULL_V_MSG(dinput, false, "DirectInput not initialized. Rebooting your PC may solve this issue.");
 	HRESULT hr;
 	int num = input->get_unused_joy_id();
 
 	if (have_device(instance->guidInstance) || num == -1)
 		return false;
 
-	d_joypads[joypad_count] = dinput_gamepad();
-	dinput_gamepad *joy = &d_joypads[joypad_count];
+	d_joypads[num] = dinput_gamepad();
+	dinput_gamepad *joy = &d_joypads[num];
 
 	const DWORD devtype = (instance->dwDevType & 0xFF);
 
@@ -160,12 +170,16 @@ bool JoypadWindows::setup_dinput_joypad(const DIDEVICEINSTANCE *instance) {
 
 	const GUID &guid = instance->guidProduct;
 	char uid[128];
-	sprintf_s(uid, "%08lx%04hx%04hx%02hhx%02hhx%02hhx%02hhx%02hhx%02hhx%02hhx%02hhx",
-			__builtin_bswap32(guid.Data1), guid.Data2, guid.Data3,
-			guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3],
-			guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]);
 
-	id_to_change = joypad_count;
+	ERR_FAIL_COND_V_MSG(memcmp(&guid.Data4[2], "PIDVID", 6), false, "DirectInput device not recognised.");
+	WORD type = BSWAP16(0x03);
+	WORD vendor = BSWAP16(LOWORD(guid.Data1));
+	WORD product = BSWAP16(HIWORD(guid.Data1));
+	WORD version = 0;
+	sprintf_s(uid, "%04x%04x%04x%04x%04x%04x%04x%04x", type, 0, vendor, 0, product, 0, version, 0);
+
+	id_to_change = num;
+	slider_count = 0;
 
 	joy->di_joy->SetDataFormat(&c_dfDIJoystick2);
 	joy->di_joy->SetCooperativeLevel(*hWnd, DISCL_FOREGROUND);
@@ -202,9 +216,14 @@ void JoypadWindows::setup_joypad_object(const DIDEVICEOBJECTINSTANCE *ob, int p_
 			ofs = DIJOFS_RY;
 		else if (ob->guidType == GUID_RzAxis)
 			ofs = DIJOFS_RZ;
-		else if (ob->guidType == GUID_Slider)
-			ofs = DIJOFS_SLIDER(0);
-		else
+		else if (ob->guidType == GUID_Slider) {
+			if (slider_count < 2) {
+				ofs = DIJOFS_SLIDER(slider_count);
+				slider_count++;
+			} else {
+				return;
+			}
+		} else
 			return;
 		prop_range.diph.dwSize = sizeof(DIPROPRANGE);
 		prop_range.diph.dwHeaderSize = sizeof(DIPROPHEADER);
@@ -275,6 +294,7 @@ void JoypadWindows::close_joypad(int id) {
 
 void JoypadWindows::probe_joypads() {
 
+	ERR_FAIL_NULL_MSG(dinput, "DirectInput not initialized. Rebooting your PC may solve this issue.");
 	DWORD dwResult;
 	for (DWORD i = 0; i < XUSER_MAX_COUNT; i++) {
 
@@ -334,9 +354,9 @@ void JoypadWindows::process_joypads() {
 		if (joy.state.dwPacketNumber != joy.last_packet) {
 
 			int button_mask = XINPUT_GAMEPAD_DPAD_UP;
-			for (int i = 0; i <= 16; i++) {
+			for (int j = 0; j <= 16; j++) {
 
-				input->joy_button(joy.id, i, joy.state.Gamepad.wButtons & button_mask);
+				input->joy_button(joy.id, j, joy.state.Gamepad.wButtons & button_mask);
 				button_mask = button_mask * 2;
 			}
 
@@ -405,9 +425,9 @@ void JoypadWindows::process_joypads() {
 		}
 
 		// on mingw, these constants are not constants
-		int count = 6;
-		int axes[] = { DIJOFS_X, DIJOFS_Y, DIJOFS_Z, DIJOFS_RX, DIJOFS_RY, DIJOFS_RZ };
-		int values[] = { js.lX, js.lY, js.lZ, js.lRx, js.lRy, js.lRz };
+		int count = 8;
+		unsigned int axes[] = { DIJOFS_X, DIJOFS_Y, DIJOFS_Z, DIJOFS_RX, DIJOFS_RY, DIJOFS_RZ, DIJOFS_SLIDER(0), DIJOFS_SLIDER(1) };
+		int values[] = { js.lX, js.lY, js.lZ, js.lRx, js.lRy, js.lRz, js.rglSlider[0], js.rglSlider[1] };
 
 		for (int j = 0; j < joy->joy_axis.size(); j++) {
 
@@ -426,7 +446,11 @@ void JoypadWindows::post_hat(int p_device, DWORD p_dpad) {
 
 	int dpad_val = 0;
 
-	if (p_dpad == -1) {
+	// Should be -1 when centered, but according to docs:
+	// "Some drivers report the centered position of the POV indicator as 65,535. Determine whether the indicator is centered as follows:
+	//  BOOL POVCentered = (LOWORD(dwPOV) == 0xFFFF);"
+	// https://docs.microsoft.com/en-us/previous-versions/windows/desktop/ee416628(v%3Dvs.85)#remarks
+	if (LOWORD(p_dpad) == 0xFFFF) {
 		dpad_val = InputDefault::HAT_MASK_CENTER;
 	}
 	if (p_dpad == 0) {

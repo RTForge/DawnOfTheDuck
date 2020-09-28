@@ -10,7 +10,9 @@ precision highp float;
 precision highp int;
 #endif
 
+/* clang-format on */
 #include "stdlib.glsl"
+/* clang-format off */
 
 #define SHADER_IS_SRGB true
 
@@ -58,10 +60,6 @@ uniform highp sampler2D bone_transforms; // texunit:-1
 uniform ivec2 skeleton_texture_size;
 
 #endif
-
-uniform highp mat4 skeleton_transform;
-uniform highp mat4 skeleton_transform_inverse;
-uniform bool skeleton_in_world_coords;
 
 #endif
 
@@ -253,16 +251,14 @@ void light_compute(
 		//normalized blinn always unless disabled
 		vec3 H = normalize(V + L);
 		float cNdotH = max(dot(N, H), 0.0);
-		float cVdotH = max(dot(V, H), 0.0);
-		float cLdotH = max(dot(L, H), 0.0);
 		float shininess = exp2(15.0 * (1.0 - roughness) + 1.0) * 0.25;
-		float blinn = pow(cNdotH, shininess);
+		float blinn = pow(cNdotH, shininess) * cNdotL;
 		blinn *= (shininess + 8.0) * (1.0 / (8.0 * M_PI));
-		specular_brdf_NL = (blinn) / max(4.0 * cNdotV * cNdotL, 0.75);
+		specular_brdf_NL = blinn;
 #endif
 
 		SRGB_APPROX(specular_brdf_NL)
-		specular_interp += specular_brdf_NL * light_color * attenuation;
+		specular_interp += specular_brdf_NL * light_color * attenuation * (1.0 / M_PI);
 	}
 }
 
@@ -408,12 +404,7 @@ void main() {
 
 #endif
 
-	if (skeleton_in_world_coords) {
-		bone_transform = skeleton_transform * (bone_transform * skeleton_transform_inverse);
-		world_matrix = bone_transform * world_matrix;
-	} else {
-		world_matrix = world_matrix * bone_transform;
-	}
+	world_matrix = world_matrix * bone_transform;
 
 #endif
 
@@ -424,10 +415,15 @@ void main() {
 
 #endif
 
+	mat4 local_projection_matrix = projection_matrix;
+
 	mat4 modelview = camera_inverse_matrix * world_matrix;
 	float roughness = 1.0;
 
+#define projection_matrix local_projection_matrix
 #define world_transform world_matrix
+
+	float point_size = 1.0;
 
 	{
 		/* clang-format off */
@@ -437,6 +433,7 @@ VERTEX_SHADER_CODE
 		/* clang-format on */
 	}
 
+	gl_PointSize = point_size;
 	vec4 outvec = vertex;
 
 	// use local coordinates
@@ -733,9 +730,6 @@ uniform highp vec2 viewport_size;
 uniform vec2 screen_pixel_size;
 #endif
 
-// I think supporting this in GLES2 is difficult
-// uniform highp sampler2D depth_buffer;
-
 #if defined(SCREEN_TEXTURE_USED)
 uniform highp sampler2D screen_texture; //texunit:-4
 #endif
@@ -911,6 +905,7 @@ uniform mat4 radiance_inverse_xform;
 
 #endif
 
+uniform vec4 bg_color;
 uniform float bg_energy;
 
 uniform float ambient_sky_contribution;
@@ -1147,7 +1142,8 @@ void light_compute(
 		float clearcoat_gloss,
 		float anisotropy,
 		inout vec3 diffuse_light,
-		inout vec3 specular_light) {
+		inout vec3 specular_light,
+		inout float alpha) {
 
 //this makes lights behave closer to linear, but then addition of lights looks bad
 //better left disabled
@@ -1275,9 +1271,9 @@ LIGHT_SHADER_CODE
 
 		//normalized blinn
 		float shininess = exp2(15.0 * (1.0 - roughness) + 1.0) * 0.25;
-		float blinn = pow(cNdotH, shininess);
+		float blinn = pow(cNdotH, shininess) * cNdotL;
 		blinn *= (shininess + 8.0) * (1.0 / (8.0 * M_PI));
-		specular_brdf_NL = (blinn) / max(4.0 * cNdotV * cNdotL, 0.75);
+		specular_brdf_NL = blinn;
 
 #elif defined(SPECULAR_PHONG)
 
@@ -1302,10 +1298,10 @@ LIGHT_SHADER_CODE
 		// shlick+ggx as default
 
 #if defined(LIGHT_USE_ANISOTROPY)
-		float alpha = roughness * roughness;
+		float alpha_ggx = roughness * roughness;
 		float aspect = sqrt(1.0 - anisotropy * 0.9);
-		float ax = alpha / aspect;
-		float ay = alpha * aspect;
+		float ax = alpha_ggx / aspect;
+		float ay = alpha_ggx * aspect;
 		float XdotH = dot(T, H);
 		float YdotH = dot(B, H);
 		float D = D_GGX_anisotropic(cNdotH, ax, ay, XdotH, YdotH, cNdotH);
@@ -1313,10 +1309,10 @@ LIGHT_SHADER_CODE
 		float G = V_GGX_anisotropic(ax, ay, dot(T, V), dot(T, L), dot(B, V), dot(B, L), cNdotV, cNdotL);
 
 #else
-		float alpha = roughness * roughness;
-		float D = D_GGX(cNdotH, alpha);
-		//float G = G_GGX_2cos(cNdotL, alpha) * G_GGX_2cos(cNdotV, alpha);
-		float G = V_GGX(cNdotL, cNdotV, alpha);
+		float alpha_ggx = roughness * roughness;
+		float D = D_GGX(cNdotH, alpha_ggx);
+		//float G = G_GGX_2cos(cNdotL, alpha_ggx) * G_GGX_2cos(cNdotV, alpha_ggx);
+		float G = V_GGX(cNdotL, cNdotV, alpha_ggx);
 #endif
 		// F
 		vec3 f0 = F0(metallic, specular, diffuse_color);
@@ -1346,6 +1342,10 @@ LIGHT_SHADER_CODE
 #endif
 	}
 
+#ifdef USE_SHADOW_TO_OPACITY
+	alpha = min(alpha, clamp(1.0 - length(attenuation), 0.0, 1.0));
+#endif
+
 #endif //defined(USE_LIGHT_SHADER_CODE)
 }
 
@@ -1356,7 +1356,7 @@ LIGHT_SHADER_CODE
 
 #ifdef USE_RGBA_SHADOWS
 
-#define SHADOW_DEPTH(m_val) dot(m_val, vec4(1.0 / (256.0 * 256.0 * 256.0), 1.0 / (256.0 * 256.0), 1.0 / 256.0, 1.0))
+#define SHADOW_DEPTH(m_val) dot(m_val, vec4(1.0 / (255.0 * 255.0 * 255.0), 1.0 / (255.0 * 255.0), 1.0 / 255.0, 1.0))
 
 #else
 
@@ -1466,6 +1466,9 @@ void main() {
 	float anisotropy = 0.0;
 	vec2 anisotropy_flow = vec2(1.0, 0.0);
 	float sss_strength = 0.0; //unused
+	// gl_FragDepth is not available in GLES2, so writing to DEPTH is not converted to gl_FragDepth by Godot compiler resulting in a
+	// compile error because DEPTH is not a variable.
+	float m_DEPTH = 0.0;
 
 	float alpha = 1.0;
 	float side = 1.0;
@@ -1528,20 +1531,33 @@ FRAGMENT_SHADER_CODE
 
 	vec3 eye_position = view;
 
+#if !defined(USE_SHADOW_TO_OPACITY)
+
 #if defined(ALPHA_SCISSOR_USED)
 	if (alpha < alpha_scissor) {
 		discard;
 	}
-#endif
+#endif // ALPHA_SCISSOR_USED
 
 #ifdef USE_DEPTH_PREPASS
-	if (alpha < 0.99) {
+	if (alpha < 0.1) {
 		discard;
 	}
-#endif
+#endif // USE_DEPTH_PREPASS
+
+#endif // !USE_SHADOW_TO_OPACITY
 
 #ifdef BASE_PASS
-	//none
+
+	// IBL precalculations
+	float ndotv = clamp(dot(normal, eye_position), 0.0, 1.0);
+	vec3 f0 = F0(metallic, specular, albedo);
+	vec3 F = f0 + (max(vec3(1.0 - roughness), f0) - f0) * pow(1.0 - ndotv, 5.0);
+
+#ifdef AMBIENT_LIGHT_DISABLED
+	ambient_light = vec3(0.0, 0.0, 0.0);
+#else
+
 #ifdef USE_RADIANCE_MAP
 
 	vec3 ref_vec = reflect(-eye_position, N);
@@ -1550,20 +1566,23 @@ FRAGMENT_SHADER_CODE
 	ref_vec.z *= -1.0;
 
 	specular_light = textureCubeLod(radiance_map, ref_vec, roughness * RADIANCE_MAX_LOD).xyz * bg_energy;
-
+#ifndef USE_LIGHTMAP
 	{
 		vec3 ambient_dir = normalize((radiance_inverse_xform * vec4(normal, 0.0)).xyz);
-		vec3 env_ambient = textureCubeLod(radiance_map, ambient_dir, RADIANCE_MAX_LOD).xyz * bg_energy;
+		vec3 env_ambient = textureCubeLod(radiance_map, ambient_dir, 4.0).xyz * bg_energy;
+		env_ambient *= 1.0 - F;
 
 		ambient_light = mix(ambient_color.rgb, env_ambient, ambient_sky_contribution);
 	}
+#endif
 
 #else
 
 	ambient_light = ambient_color.rgb;
+	specular_light = bg_color.rgb * bg_energy;
 
 #endif
-
+#endif // AMBIENT_LIGHT_DISABLED
 	ambient_light *= ambient_energy;
 
 #if defined(USE_REFLECTION_PROBE1) || defined(USE_REFLECTION_PROBE2)
@@ -1619,6 +1638,27 @@ FRAGMENT_SHADER_CODE
 
 #endif // defined(USE_REFLECTION_PROBE1) || defined(USE_REFLECTION_PROBE2)
 
+	// environment BRDF approximation
+	{
+
+#if defined(DIFFUSE_TOON)
+		//simplify for toon, as
+		specular_light *= specular * metallic * albedo * 2.0;
+#else
+
+		// scales the specular reflections, needs to be be computed before lighting happens,
+		// but after environment and reflection probes are added
+		//TODO: this curve is not really designed for gammaspace, should be adjusted
+		const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+		const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+		vec4 r = roughness * c0 + c1;
+		float a004 = min(r.x * r.x, exp2(-9.28 * ndotv)) * r.x + r.y;
+		vec2 env = vec2(-1.04, 1.04) * a004 + r.zw;
+		specular_light *= env.x * F + env.y;
+
+#endif
+	}
+
 #ifdef USE_LIGHTMAP
 	//ambient light will come entirely from lightmap is lightmap is used
 	ambient_light = texture2D(lightmap, uv2_interp).rgb * lightmap_energy;
@@ -1626,19 +1666,19 @@ FRAGMENT_SHADER_CODE
 
 #ifdef USE_LIGHTMAP_CAPTURE
 	{
-		vec3 cone_dirs[12] = vec3[](
-				vec3(0.0, 0.0, 1.0),
-				vec3(0.866025, 0.0, 0.5),
-				vec3(0.267617, 0.823639, 0.5),
-				vec3(-0.700629, 0.509037, 0.5),
-				vec3(-0.700629, -0.509037, 0.5),
-				vec3(0.267617, -0.823639, 0.5),
-				vec3(0.0, 0.0, -1.0),
-				vec3(0.866025, 0.0, -0.5),
-				vec3(0.267617, 0.823639, -0.5),
-				vec3(-0.700629, 0.509037, -0.5),
-				vec3(-0.700629, -0.509037, -0.5),
-				vec3(0.267617, -0.823639, -0.5));
+		vec3 cone_dirs[12];
+		cone_dirs[0] = vec3(0.0, 0.0, 1.0);
+		cone_dirs[1] = vec3(0.866025, 0.0, 0.5);
+		cone_dirs[2] = vec3(0.267617, 0.823639, 0.5);
+		cone_dirs[3] = vec3(-0.700629, 0.509037, 0.5);
+		cone_dirs[4] = vec3(-0.700629, -0.509037, 0.5);
+		cone_dirs[5] = vec3(0.267617, -0.823639, 0.5);
+		cone_dirs[6] = vec3(0.0, 0.0, -1.0);
+		cone_dirs[7] = vec3(0.866025, 0.0, -0.5);
+		cone_dirs[8] = vec3(0.267617, 0.823639, -0.5);
+		cone_dirs[9] = vec3(-0.700629, 0.509037, -0.5);
+		cone_dirs[10] = vec3(-0.700629, -0.509037, -0.5);
+		cone_dirs[11] = vec3(0.267617, -0.823639, -0.5);
 
 		vec3 local_normal = normalize(camera_matrix * vec4(normal, 0.0)).xyz;
 		vec4 captured = vec4(0.0);
@@ -1690,6 +1730,8 @@ FRAGMENT_SHADER_CODE
 
 #endif
 
+#if !defined(SHADOWS_DISABLED)
+
 #ifdef USE_SHADOW
 	{
 		highp vec4 splane = shadow_coord;
@@ -1720,6 +1762,8 @@ FRAGMENT_SHADER_CODE
 	}
 #endif
 
+#endif //SHADOWS_DISABLED
+
 #endif //type omni
 
 #ifdef LIGHT_MODE_DIRECTIONAL
@@ -1729,6 +1773,8 @@ FRAGMENT_SHADER_CODE
 	L = normalize(light_vec);
 #endif
 	float depth_z = -vertex.z;
+
+#if !defined(SHADOWS_DISABLED)
 
 #ifdef USE_SHADOW
 
@@ -1948,6 +1994,8 @@ FRAGMENT_SHADER_CODE
 
 #endif //use shadow
 
+#endif // SHADOWS_DISABLED
+
 #endif
 
 #ifdef LIGHT_MODE_SPOT
@@ -1984,6 +2032,8 @@ FRAGMENT_SHADER_CODE
 
 #endif
 
+#if !defined(SHADOWS_DISABLED)
+
 #ifdef USE_SHADOW
 	{
 		highp vec4 splane = shadow_coord;
@@ -1992,6 +2042,8 @@ FRAGMENT_SHADER_CODE
 		light_att *= mix(shadow_color.rgb, vec3(1.0), shadow);
 	}
 #endif
+
+#endif // SHADOWS_DISABLED
 
 #endif // LIGHT_MODE_SPOT
 
@@ -2023,12 +2075,31 @@ FRAGMENT_SHADER_CODE
 			clearcoat_gloss,
 			anisotropy,
 			diffuse_light,
-			specular_light);
+			specular_light,
+			alpha);
 
 #endif //vertex lighting
 
 #endif //USE_LIGHTING
 	//compute and merge
+
+#ifdef USE_SHADOW_TO_OPACITY
+
+	alpha = min(alpha, clamp(length(ambient_light), 0.0, 1.0));
+
+#if defined(ALPHA_SCISSOR_USED)
+	if (alpha < alpha_scissor) {
+		discard;
+	}
+#endif // ALPHA_SCISSOR_USED
+
+#ifdef USE_DEPTH_PREPASS
+	if (alpha < 0.1) {
+		discard;
+	}
+#endif // USE_DEPTH_PREPASS
+
+#endif // !USE_SHADOW_TO_OPACITY
 
 #ifndef RENDER_DEPTH
 
@@ -2049,27 +2120,6 @@ FRAGMENT_SHADER_CODE
 	diffuse_light *= 1.0 - metallic;
 	ambient_light *= 1.0 - metallic;
 
-	// environment BRDF approximation
-
-	{
-
-#if defined(DIFFUSE_TOON)
-		//simplify for toon, as
-		specular_light *= specular * metallic * albedo * 2.0;
-#else
-		//TODO: this curve is not really designed for gammaspace, should be adjusted
-		const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
-		const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
-		vec4 r = roughness * c0 + c1;
-		float ndotv = clamp(dot(normal, eye_position), 0.0, 1.0);
-		float a004 = min(r.x * r.x, exp2(-9.28 * ndotv)) * r.x + r.y;
-		vec2 env = vec2(-1.04, 1.04) * a004 + r.zw;
-
-		vec3 f0 = F0(metallic, specular, albedo);
-		specular_light *= env.x * f0 + env.y;
-#endif
-	}
-
 	gl_FragColor = vec4(ambient_light + diffuse_light + specular_light, alpha);
 
 	//add emission if in base pass
@@ -2077,8 +2127,6 @@ FRAGMENT_SHADER_CODE
 	gl_FragColor.rgb += emission;
 #endif
 	// gl_FragColor = vec4(normal, 1.0);
-
-#endif //unshaded
 
 //apply fog
 #if defined(FOG_DEPTH_ENABLED) || defined(FOG_HEIGHT_ENABLED)
@@ -2134,13 +2182,15 @@ FRAGMENT_SHADER_CODE
 
 #endif // defined(FOG_DEPTH_ENABLED) || defined(FOG_HEIGHT_ENABLED)
 
+#endif //unshaded
+
 #else // not RENDER_DEPTH
 //depth render
 #ifdef USE_RGBA_SHADOWS
 
 	highp float depth = ((position_interp.z / position_interp.w) + 1.0) * 0.5 + 0.0; // bias
-	highp vec4 comp = fract(depth * vec4(256.0 * 256.0 * 256.0, 256.0 * 256.0, 256.0, 1.0));
-	comp -= comp.xxyz * vec4(0.0, 1.0 / 256.0, 1.0 / 256.0, 1.0 / 256.0);
+	highp vec4 comp = fract(depth * vec4(255.0 * 255.0 * 255.0, 255.0 * 255.0, 255.0, 1.0));
+	comp -= comp.xxyz * vec4(0.0, 1.0 / 255.0, 1.0 / 255.0, 1.0 / 255.0);
 	gl_FragColor = comp;
 
 #endif

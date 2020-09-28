@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -37,6 +37,7 @@
 #include "os_iphone.h"
 
 #import "GameController/GameController.h"
+#import <AudioToolbox/AudioServices.h>
 
 #define kFilteringFactor 0.1
 #define kRenderingFrequency 60
@@ -48,8 +49,10 @@ void _set_keep_screen_on(bool p_enabled);
 Error _shell_open(String p_uri) {
 	NSString *url = [[NSString alloc] initWithUTF8String:p_uri.utf8().get_data()];
 
-	if (![[UIApplication sharedApplication] canOpenURL:[NSURL URLWithString:url]])
+	if (![[UIApplication sharedApplication] canOpenURL:[NSURL URLWithString:url]]) {
+		[url release];
 		return ERR_CANT_OPEN;
+	}
 
 	printf("opening url %ls\n", p_uri.c_str());
 	[[UIApplication sharedApplication] openURL:[NSURL URLWithString:url]];
@@ -59,6 +62,10 @@ Error _shell_open(String p_uri) {
 
 void _set_keep_screen_on(bool p_enabled) {
 	[[UIApplication sharedApplication] setIdleTimerDisabled:(BOOL)p_enabled];
+};
+
+void _vibrate() {
+	AudioServicesPlaySystemSound(kSystemSoundID_Vibrate);
 };
 
 @implementation AppDelegate
@@ -543,7 +550,7 @@ static int frame_count = 0;
 					// can use that instead? (note that left and right seem swapped)
 
 					switch ([[UIApplication sharedApplication] statusBarOrientation]) {
-						case UIDeviceOrientationLandscapeLeft: {
+						case UIInterfaceOrientationLandscapeLeft: {
 							OSIPhone::get_singleton()->update_gravity(-gravity.y, gravity.x,
 									gravity.z);
 							OSIPhone::get_singleton()->update_accelerometer(
@@ -554,7 +561,7 @@ static int frame_count = 0;
 							OSIPhone::get_singleton()->update_gyroscope(-rotation.y, rotation.x,
 									rotation.z);
 						}; break;
-						case UIDeviceOrientationLandscapeRight: {
+						case UIInterfaceOrientationLandscapeRight: {
 							OSIPhone::get_singleton()->update_gravity(gravity.y, -gravity.x,
 									gravity.z);
 							OSIPhone::get_singleton()->update_accelerometer(
@@ -565,7 +572,7 @@ static int frame_count = 0;
 							OSIPhone::get_singleton()->update_gyroscope(rotation.y, -rotation.x,
 									rotation.z);
 						}; break;
-						case UIDeviceOrientationPortraitUpsideDown: {
+						case UIInterfaceOrientationPortraitUpsideDown: {
 							OSIPhone::get_singleton()->update_gravity(-gravity.x, gravity.y,
 									gravity.z);
 							OSIPhone::get_singleton()->update_accelerometer(
@@ -590,7 +597,7 @@ static int frame_count = 0;
 					};
 				}
 
-				bool quit_request = OSIPhone::get_singleton()->iterate();
+				OSIPhone::get_singleton()->iterate();
 			};
 
 		}; break;
@@ -609,24 +616,11 @@ static int frame_count = 0;
 
 	is_focus_out = false;
 
-	[application setStatusBarHidden:YES withAnimation:UIStatusBarAnimationNone];
 	// disable idle timer
 	// application.idleTimerDisabled = YES;
 
 	// Create a full-screen window
 	window = [[UIWindow alloc] initWithFrame:rect];
-	// window.autoresizesSubviews = YES;
-	//[window setAutoresizingMask:UIViewAutoresizingFlexibleWidth |
-	// UIViewAutoresizingFlexibleWidth];
-
-	// Create the OpenGL ES view and add it to the window
-	GLView *glView = [[GLView alloc] initWithFrame:rect];
-	printf("glview is %p\n", glView);
-	//[window addSubview:glView];
-	glView.delegate = self;
-	// glView.autoresizesSubviews = YES;
-	//[glView setAutoresizingMask:UIViewAutoresizingFlexibleWidth |
-	// UIViewAutoresizingFlexibleWidth];
 
 	OS::VideoMode vm = _get_video_mode();
 
@@ -640,6 +634,12 @@ static int frame_count = 0;
 		exit(0);
 		return FALSE;
 	};
+
+	// WARNING: We must *always* create the GLView after we have constructed the
+	// OS with iphone_main. This allows the GLView to access project settings so
+	// it can properly initialize the OpenGL context
+	GLView *glView = [[GLView alloc] initWithFrame:rect];
+	glView.delegate = self;
 
 	view_controller = [[ViewController alloc] init];
 	view_controller.view = glView;

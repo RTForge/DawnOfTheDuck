@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -49,7 +49,7 @@ void AnimationNode::get_parameter_list(List<PropertyInfo> *r_list) const {
 
 Variant AnimationNode::get_parameter_default_value(const StringName &p_parameter) const {
 	if (get_script_instance()) {
-		return get_script_instance()->call("get_parameter_default_value");
+		return get_script_instance()->call("get_parameter_default_value", p_parameter);
 	}
 	return Variant();
 }
@@ -316,7 +316,7 @@ String AnimationNode::get_caption() const {
 
 void AnimationNode::add_input(const String &p_name) {
 	//root nodes can't add inputs
-	ERR_FAIL_COND(Object::cast_to<AnimationRootNode>(this) != NULL)
+	ERR_FAIL_COND(Object::cast_to<AnimationRootNode>(this) != NULL);
 	Input input;
 	ERR_FAIL_COND(p_name.find(".") != -1 || p_name.find("/") != -1);
 	input.name = p_name;
@@ -397,7 +397,7 @@ void AnimationNode::_validate_property(PropertyInfo &property) const {
 
 Ref<AnimationNode> AnimationNode::get_child_by_name(const StringName &p_name) {
 	if (get_script_instance()) {
-		return get_script_instance()->call("get_child_by_name");
+		return get_script_instance()->call("get_child_by_name", p_name);
 	}
 	return Ref<AnimationNode>();
 }
@@ -622,7 +622,7 @@ bool AnimationTree::_update_caches(AnimationPlayer *player) {
 
 							Skeleton *sk = Object::cast_to<Skeleton>(spatial);
 							int bone_idx = sk->find_bone(path.get_subname(0));
-							if (bone_idx != -1 && !sk->is_bone_ignore_animation(bone_idx)) {
+							if (bone_idx != -1) {
 
 								track_xform->skeleton = sk;
 								track_xform->bone_idx = bone_idx;
@@ -883,16 +883,16 @@ void AnimationTree::_process_graph(float p_delta) {
 
 						TrackCacheTransform *t = static_cast<TrackCacheTransform *>(track);
 
-						if (t->process_pass != process_pass) {
-
-							t->process_pass = process_pass;
-							t->loc = Vector3();
-							t->rot = Quat();
-							t->rot_blend_accum = 0;
-							t->scale = Vector3();
-						}
-
 						if (track->root_motion) {
+
+							if (t->process_pass != process_pass) {
+
+								t->process_pass = process_pass;
+								t->loc = Vector3();
+								t->rot = Quat();
+								t->rot_blend_accum = 0;
+								t->scale = Vector3(1, 1, 1);
+							}
 
 							float prev_time = time - delta;
 							if (prev_time < 0) {
@@ -946,7 +946,14 @@ void AnimationTree::_process_graph(float p_delta) {
 							Error err = a->transform_track_interpolate(i, time, &loc, &rot, &scale);
 							//ERR_CONTINUE(err!=OK); //used for testing, should be removed
 
-							scale -= Vector3(1.0, 1.0, 1.0); //helps make it work properly with Add nodes
+							if (t->process_pass != process_pass) {
+
+								t->process_pass = process_pass;
+								t->loc = loc;
+								t->rot = rot;
+								t->rot_blend_accum = 0;
+								t->scale = scale;
+							}
 
 							if (err != OK)
 								continue;
@@ -978,8 +985,7 @@ void AnimationTree::_process_graph(float p_delta) {
 								continue;
 
 							if (t->process_pass != process_pass) {
-								Variant::CallError ce;
-								t->value = Variant::construct(value.get_type(), NULL, 0, ce); //reset
+								t->value = value;
 								t->process_pass = process_pass;
 							}
 
@@ -1036,7 +1042,7 @@ void AnimationTree::_process_graph(float p_delta) {
 						float bezier = a->bezier_track_interpolate(i, time);
 
 						if (t->process_pass != process_pass) {
-							t->value = 0;
+							t->value = bezier;
 							t->process_pass = process_pass;
 						}
 
@@ -1233,8 +1239,6 @@ void AnimationTree::_process_graph(float p_delta) {
 					Transform xform;
 					xform.origin = t->loc;
 
-					t->scale += Vector3(1.0, 1.0, 1.0); //helps make it work properly with Add nodes and root motion
-
 					xform.basis.set_quat_scale(t->rot, t->scale);
 
 					if (t->root_motion) {
@@ -1268,7 +1272,8 @@ void AnimationTree::_process_graph(float p_delta) {
 					t->object->set_indexed(t->subpath, t->value);
 
 				} break;
-				default: {} //the rest don't matter
+				default: {
+				} //the rest don't matter
 			}
 		}
 	}
@@ -1293,9 +1298,17 @@ void AnimationTree::_notification(int p_what) {
 		_clear_caches();
 		if (last_animation_player) {
 
-			Object *old_player = ObjectDB::get_instance(last_animation_player);
-			if (old_player) {
-				old_player->disconnect("caches_cleared", this, "_clear_caches");
+			Object *player = ObjectDB::get_instance(last_animation_player);
+			if (player) {
+				player->disconnect("caches_cleared", this, "_clear_caches");
+			}
+		}
+	} else if (p_what == NOTIFICATION_ENTER_TREE) {
+		if (last_animation_player) {
+
+			Object *player = ObjectDB::get_instance(last_animation_player);
+			if (player) {
+				player->connect("caches_cleared", this, "_clear_caches");
 			}
 		}
 	}
@@ -1329,15 +1342,15 @@ String AnimationTree::get_configuration_warning() const {
 
 	if (!root.is_valid()) {
 		if (warning != String()) {
-			warning += "\n";
+			warning += "\n\n";
 		}
-		warning += TTR("A root AnimationNode for the graph is not set.");
+		warning += TTR("No root AnimationNode for the graph is set.");
 	}
 
 	if (!has_node(animation_player)) {
 
 		if (warning != String()) {
-			warning += "\n";
+			warning += "\n\n";
 		}
 
 		warning += TTR("Path to an AnimationPlayer node containing animations is not set.");
@@ -1348,7 +1361,7 @@ String AnimationTree::get_configuration_warning() const {
 
 	if (!player) {
 		if (warning != String()) {
-			warning += "\n";
+			warning += "\n\n";
 		}
 
 		warning += TTR("Path set for AnimationPlayer does not lead to an AnimationPlayer node.");
@@ -1357,10 +1370,10 @@ String AnimationTree::get_configuration_warning() const {
 
 	if (!player->has_node(player->get_root())) {
 		if (warning != String()) {
-			warning += "\n";
+			warning += "\n\n";
 		}
 
-		warning += TTR("AnimationPlayer root is not a valid node.");
+		warning += TTR("The AnimationPlayer root node is not a valid node.");
 		return warning;
 	}
 
@@ -1399,6 +1412,7 @@ void AnimationTree::_update_properties_for_node(const String &p_base_path, Ref<A
 		Vector<Activity> activity;
 		for (int i = 0; i < node->get_input_count(); i++) {
 			Activity a;
+			a.activity = 0;
 			a.last_pass = 0;
 			activity.push_back(a);
 		}
@@ -1567,6 +1581,7 @@ AnimationTree::AnimationTree() {
 	active = false;
 	cache_valid = false;
 	setup_pass = 1;
+	process_pass = 1;
 	started = true;
 	properties_dirty = true;
 	last_animation_player = 0;

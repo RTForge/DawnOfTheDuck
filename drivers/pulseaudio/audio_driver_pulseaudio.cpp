@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -78,6 +78,8 @@ void AudioDriverPulseAudio::pa_source_info_cb(pa_context *c, const pa_source_inf
 }
 
 void AudioDriverPulseAudio::pa_server_info_cb(pa_context *c, const pa_server_info *i, void *userdata) {
+
+	ERR_FAIL_COND_MSG(!i, "PulseAudio server info is null.");
 	AudioDriverPulseAudio *ad = (AudioDriverPulseAudio *)userdata;
 
 	ad->capture_default_device = i->default_source_name;
@@ -180,7 +182,7 @@ Error AudioDriverPulseAudio::init_device() {
 			break;
 	}
 
-	int latency = GLOBAL_DEF_RST("audio/output_latency", DEFAULT_OUTPUT_LATENCY);
+	int latency = GLOBAL_GET("audio/output_latency");
 	buffer_frames = closest_power_of_2(latency * mix_rate / 1000);
 	pa_buffer_size = buffer_frames * pa_map.channels;
 
@@ -191,6 +193,14 @@ Error AudioDriverPulseAudio::init_device() {
 	spec.format = PA_SAMPLE_S16LE;
 	spec.channels = pa_map.channels;
 	spec.rate = mix_rate;
+	pa_map.map[0] = PA_CHANNEL_POSITION_FRONT_LEFT;
+	pa_map.map[1] = PA_CHANNEL_POSITION_FRONT_RIGHT;
+	pa_map.map[2] = PA_CHANNEL_POSITION_FRONT_CENTER;
+	pa_map.map[3] = PA_CHANNEL_POSITION_LFE;
+	pa_map.map[4] = PA_CHANNEL_POSITION_REAR_LEFT;
+	pa_map.map[5] = PA_CHANNEL_POSITION_REAR_RIGHT;
+	pa_map.map[6] = PA_CHANNEL_POSITION_SIDE_LEFT;
+	pa_map.map[7] = PA_CHANNEL_POSITION_SIDE_RIGHT;
 
 	pa_str = pa_stream_new(pa_ctx, "Sound", &spec, &pa_map);
 	if (pa_str == NULL) {
@@ -231,7 +241,7 @@ Error AudioDriverPulseAudio::init() {
 	thread_exited = false;
 	exit_thread = false;
 
-	mix_rate = GLOBAL_DEF_RST("audio/mix_rate", DEFAULT_MIX_RATE);
+	mix_rate = GLOBAL_GET("audio/mix_rate");
 
 	pa_ml = pa_mainloop_new();
 	ERR_FAIL_COND_V(pa_ml == NULL, ERR_CANT_OPEN);
@@ -258,7 +268,10 @@ Error AudioDriverPulseAudio::init() {
 	}
 
 	while (pa_ready == 0) {
-		pa_mainloop_iterate(pa_ml, 1, NULL);
+		ret = pa_mainloop_iterate(pa_ml, 1, NULL);
+		if (ret < 0) {
+			ERR_PRINT("pa_mainloop_iterate error");
+		}
 	}
 
 	if (pa_ready < 0) {

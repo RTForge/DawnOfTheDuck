@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -35,6 +35,7 @@
 #include "core/os/input.h"
 #include "core/os/keyboard.h"
 #include "core/project_settings.h"
+#include "editor/editor_scale.h"
 #include "scene/animation/animation_blend_tree.h"
 #include "scene/animation/animation_player.h"
 #include "scene/gui/menu_button.h"
@@ -262,7 +263,7 @@ void AnimationNodeStateMachineEditor::_state_machine_gui_input(const Ref<InputEv
 		if (connecting_to_node != StringName()) {
 
 			if (state_machine->has_transition(connecting_from, connecting_to_node)) {
-				EditorNode::get_singleton()->show_warning("Transition exists!");
+				EditorNode::get_singleton()->show_warning(TTR("Transition exists!"));
 
 			} else {
 
@@ -874,9 +875,9 @@ void AnimationNodeStateMachineEditor::_state_machine_pos_draw() {
 	}
 	to.y = from.y;
 
-	float len = MAX(0.0001, playback->get_current_length());
+	float len = MAX(0.0001, current_length);
 
-	float pos = CLAMP(playback->get_current_play_pos(), 0, len);
+	float pos = CLAMP(play_pos, 0, len);
 	float c = pos / len;
 	Color fg = get_color("font_color", "Label");
 	Color bg = fg;
@@ -1011,7 +1012,8 @@ void AnimationNodeStateMachineEditor::_notification(int p_what) {
 		bool is_playing = false;
 		StringName current_node;
 		StringName blend_from_node;
-		float play_pos = 0;
+		play_pos = 0;
+		current_length = 0;
 
 		if (playback.is_valid()) {
 			tp = playback->get_travel_path();
@@ -1019,6 +1021,7 @@ void AnimationNodeStateMachineEditor::_notification(int p_what) {
 			current_node = playback->get_current_node();
 			blend_from_node = playback->get_blend_from_node();
 			play_pos = playback->get_current_play_pos();
+			current_length = playback->get_current_length();
 		}
 
 		{
@@ -1046,6 +1049,27 @@ void AnimationNodeStateMachineEditor::_notification(int p_what) {
 			state_machine_play_pos->update();
 		}
 
+		{
+			if (current_node != StringName() && state_machine->has_node(current_node)) {
+
+				String next = current_node;
+				Ref<AnimationNodeStateMachine> anodesm = state_machine->get_node(next);
+				Ref<AnimationNodeStateMachinePlayback> current_node_playback;
+
+				while (anodesm.is_valid()) {
+					current_node_playback = AnimationTreeEditor::get_singleton()->get_tree()->get(AnimationTreeEditor::get_singleton()->get_base_path() + next + "/playback");
+					next += "/" + current_node_playback->get_current_node();
+					anodesm = anodesm->get_node(current_node_playback->get_current_node());
+				}
+
+				// when current_node is a state machine, use playback of current_node to set play_pos
+				if (current_node_playback.is_valid()) {
+					play_pos = current_node_playback->get_current_play_pos();
+					current_length = current_node_playback->get_current_length();
+				}
+			}
+		}
+
 		if (last_play_pos != play_pos) {
 
 			last_play_pos = play_pos;
@@ -1071,15 +1095,15 @@ void AnimationNodeStateMachineEditor::_removed_from_graph() {
 
 void AnimationNodeStateMachineEditor::_name_edited(const String &p_text) {
 
-	String new_name = p_text;
+	const String &new_name = p_text;
 
-	ERR_FAIL_COND(new_name == "" || new_name.find(".") != -1 || new_name.find("/") != -1)
+	ERR_FAIL_COND(new_name == "" || new_name.find(".") != -1 || new_name.find("/") != -1);
 
 	if (new_name == prev_name) {
 		return; // Nothing to do.
 	}
 
-	String base_name = new_name;
+	const String &base_name = new_name;
 	int base = 1;
 	String name = base_name;
 	while (state_machine->has_node(name)) {
@@ -1094,14 +1118,16 @@ void AnimationNodeStateMachineEditor::_name_edited(const String &p_text) {
 	undo_redo->add_do_method(this, "_update_graph");
 	undo_redo->add_undo_method(this, "_update_graph");
 	undo_redo->commit_action();
+	name_edit->hide();
 	updating = false;
 
 	state_machine_draw->update();
-
-	name_edit->hide();
 }
 
 void AnimationNodeStateMachineEditor::_name_edited_focus_out() {
+
+	if (updating)
+		return;
 
 	_name_edited(name_edit->get_text());
 }
@@ -1304,7 +1330,7 @@ AnimationNodeStateMachineEditor::AnimationNodeStateMachineEditor() {
 
 	top_hb->add_spacer();
 
-	top_hb->add_child(memnew(Label("Play Mode:")));
+	top_hb->add_child(memnew(Label(TTR("Play Mode:"))));
 	play_mode = memnew(OptionButton);
 	top_hb->add_child(play_mode);
 
@@ -1342,7 +1368,7 @@ AnimationNodeStateMachineEditor::AnimationNodeStateMachineEditor() {
 	error_panel->add_child(error_label);
 	error_panel->hide();
 
-	undo_redo = EditorNode::get_singleton()->get_undo_redo();
+	undo_redo = EditorNode::get_undo_redo();
 
 	set_custom_minimum_size(Size2(0, 300 * EDSCALE));
 
@@ -1367,7 +1393,7 @@ AnimationNodeStateMachineEditor::AnimationNodeStateMachineEditor() {
 	open_file->set_title(TTR("Open Animation Node"));
 	open_file->set_mode(EditorFileDialog::MODE_OPEN_FILE);
 	open_file->connect("file_selected", this, "_file_opened");
-	undo_redo = EditorNode::get_singleton()->get_undo_redo();
+	undo_redo = EditorNode::get_undo_redo();
 
 	over_text = false;
 

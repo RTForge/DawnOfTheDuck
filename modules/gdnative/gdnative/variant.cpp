@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -36,6 +36,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+static_assert(sizeof(godot_variant) == sizeof(Variant), "Variant size mismatch");
 
 // Workaround GCC ICE on armv7hl which was affected GCC 6.0 up to 8.0 (GH-16100).
 // It was fixed upstream in 8.1, and a fix was backported to 7.4.
@@ -518,7 +520,7 @@ void GDAPI godot_variant_evaluate(godot_variant_operator p_op, const godot_varia
 	const Variant *a = (const Variant *)p_a;
 	const Variant *b = (const Variant *)p_b;
 	Variant *ret = (Variant *)r_ret;
-	Variant::evaluate(op, a, b, *ret, *r_valid);
+	Variant::evaluate(op, *a, *b, *ret, *r_valid);
 }
 
 #ifdef __cplusplus
