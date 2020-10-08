@@ -235,7 +235,7 @@ collide_with_areas = true
 transform = Transform( -1.09278e-07, 1.06066, 1.06066, 0, 1.06066, -1.06066, -2.5, -4.63629e-08, -4.63629e-08, 0, -0.0264034, -2.77298 )
 emitting = false
 amount = 1
-lifetime = 0.1
+lifetime = 0.05
 one_shot = true
 process_material = SubResource( 11 )
 draw_pass_1 = ExtResource( 4 )
@@ -294,7 +294,7 @@ stream = ExtResource( 10 )
 volume_db = -12.0
 
 [node name="EngineSplash" type="Particles" parent="."]
-transform = Transform( -1, -2.26267e-08, 8.44439e-08, 0, 0.965925, 0.258819, -8.74228e-08, 0.258819, -0.965925, 0, 0.650186, -5.06361 )
+transform = Transform( -1.62921e-07, -0.258819, 0.965925, 0, 0.965925, 0.258819, -1, 4.21669e-08, -1.57369e-07, 0, 0.650186, -5.06361 )
 amount = 100
 lifetime = 1.5
 preprocess = 2.0

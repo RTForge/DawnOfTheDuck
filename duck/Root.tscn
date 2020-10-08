@@ -147,7 +147,7 @@ mesh = SubResource( 7 )
 material/0 = null
 
 [node name="Particles" type="Particles" parent="Faucet"]
-transform = Transform( 1, 0, 0, 0, -4.37114e-08, 1, 0, -1, -4.37114e-08, 0, 2.97143, 0 )
+transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.97143, 0 )
 amount = 200
 lifetime = 3.0
 local_coords = false
