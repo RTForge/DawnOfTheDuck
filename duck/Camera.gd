@@ -66,7 +66,7 @@ func _ready():
 	# It's best to catch future divisions by 0 before they happen.
 	# Note that we don't need this check if the mouse support is disabled.
 	# In case you know what you're doing, there's a property you can change.
-	assert _iKnowWhatIAmDoing or get_viewport().get_visible_rect().get_area()
+	assert(_iKnowWhatIAmDoing or get_viewport().get_visible_rect().get_area())
 	#print("Trackball Camera around %s is ready. ♥" % get_parent().get_name())
 
 

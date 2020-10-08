@@ -71,7 +71,7 @@ operator = 2
 
 [resource]
 code = "shader_type spatial;
-render_mode blend_add, unshaded, shadows_disabled, ambient_light_disabled;
+render_mode blend_add, specular_schlick_ggx, unshaded, shadows_disabled, ambient_light_disabled;
 
 uniform vec3 DistortionOffset;
 uniform vec3 Offset;
@@ -87,104 +87,83 @@ void vertex() {
 
 void fragment() {
 // Input:3
-	vec3 n_out3p0;
-	n_out3p0 = vec3(UV,0.0);
+	vec3 n_out3p0 = vec3(UV, 0.0);
 
 // VectorUniform:12
-	vec3 n_out12p0;
-	n_out12p0 = DistortionOffset;
+	vec3 n_out12p0 = DistortionOffset;
 
 // VectorOp:21
-	vec3 n_out21p0;
-	n_out21p0 = n_out3p0 + n_out12p0;
+	vec3 n_out21p0 = n_out3p0 + n_out12p0;
 
 // Input:16
-	float n_out16p0;
-	n_out16p0 = TIME;
+	float n_out16p0 = TIME;
 
 // ScalarOp:30
 	float n_in30p1 = 0.25000;
-	float n_out30p0;
-	n_out30p0 = n_out16p0 * n_in30p1;
+	float n_out30p0 = n_out16p0 * n_in30p1;
 
 // VectorCompose:17
 	float n_in17p2 = 0.00000;
-	vec3 n_out17p0;
-	n_out17p0 = vec3( n_out30p0 , n_out30p0 , n_in17p2 );
+	vec3 n_out17p0 = vec3(n_out30p0, n_out30p0, n_in17p2);
 
 // Input:23
-	vec3 n_out23p0;
-	n_out23p0 = vec3(UV,0.0);
+	vec3 n_out23p0 = vec3(UV, 0.0);
 
 // VectorUniform:24
-	vec3 n_out24p0;
-	n_out24p0 = Offset;
+	vec3 n_out24p0 = Offset;
 
 // VectorOp:25
-	vec3 n_out25p0;
-	n_out25p0 = n_out23p0 + n_out24p0;
+	vec3 n_out25p0 = n_out23p0 + n_out24p0;
 
 // VectorOp:15
-	vec3 n_out15p0;
-	n_out15p0 = n_out17p0 + n_out25p0;
+	vec3 n_out15p0 = n_out17p0 + n_out25p0;
 
 // TextureUniform:10
 	vec3 n_out10p0;
 	float n_out10p1;
 	{
-		vec4 n_tex_read = texture( Noise , n_out15p0.xy );
+		vec4 n_tex_read = texture(Noise, n_out15p0.xy);
 		n_out10p0 = n_tex_read.rgb;
 		n_out10p1 = n_tex_read.a;
 	}
 
 // VectorDecompose:26
-	float n_out26p0;
-	float n_out26p1;
-	float n_out26p2;
-	n_out26p0 = n_out10p0.x;
-	n_out26p1 = n_out10p0.y;
-	n_out26p2 = n_out10p0.z;
+	float n_out26p0 = n_out10p0.x;
+	float n_out26p1 = n_out10p0.y;
+	float n_out26p2 = n_out10p0.z;
 
 // Scalar:29
-	float n_out29p0;
-	n_out29p0 = 0.500000;
+	float n_out29p0 = 0.500000;
 
 // ScalarOp:27
-	float n_out27p0;
-	n_out27p0 = n_out26p1 * n_out29p0;
+	float n_out27p0 = n_out26p1 * n_out29p0;
 
 // VectorOp:22
-	vec3 n_out22p0;
-	n_out22p0 = n_out21p0 + vec3(n_out27p0);
+	vec3 n_out22p0 = n_out21p0 + vec3(n_out27p0);
 
 // TextureUniform:2
 	vec3 n_out2p0;
 	float n_out2p1;
 	{
-		vec4 n_tex_read = texture( InputTexture , n_out22p0.xy );
+		vec4 n_tex_read = texture(InputTexture, n_out22p0.xy);
 		n_out2p0 = n_tex_read.rgb;
 		n_out2p1 = n_tex_read.a;
 	}
 
 // Input:31
-	vec3 n_out31p0;
-	n_out31p0 = COLOR.rgb;
+	vec3 n_out31p0 = COLOR.rgb;
 
 // VectorOp:9
-	vec3 n_out9p0;
-	n_out9p0 = n_out2p0 * n_out31p0;
+	vec3 n_out9p0 = n_out2p0 * n_out31p0;
 
 // Input:32
-	float n_out32p0;
-	n_out32p0 = COLOR.a;
+	float n_out32p0 = COLOR.a;
 
 // ScalarOp:5
-	float n_out5p0;
-	n_out5p0 = n_out2p1 - n_out32p0;
+	float n_out5p0 = n_out2p1 - n_out32p0;
 
 // ScalarFunc:6
-	float n_out6p0;
-	n_out6p0 = min(max(n_out5p0,0.0),1.0);
+	float n_out6p0 = min(max(n_out5p0, 0.0), 1.0);
 
 // Output:0
 	ALBEDO = n_out9p0;
