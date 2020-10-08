@@ -15,7 +15,7 @@ func setEnabled(value):
 	setLaunchTime()
 	
 func loadDucks():
-		var duck = load("res://Duck.tscn")
+		var duck = preload("res://Duck.tscn")
 		print("pooling ", maxDucks, " ducks")
 		for i in range(maxDucks):
 			var d = duck.instance()

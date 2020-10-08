@@ -3,7 +3,7 @@ extends Spatial
 # Declare member variables here. Examples:
 # var a = 2
 # var b = "text"
-var fireball = load("res://Fireball.tscn")
+var fireball = preload("res://Fireball.tscn")
 onready var fb = fireball.instance()
 # Called when the node enters the scene tree for the first time.
 func _ready():

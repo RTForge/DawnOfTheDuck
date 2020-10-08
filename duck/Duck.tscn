@@ -121,4 +121,3 @@ shape = SubResource( 8 )
 
 [node name="WeaponSpawn" type="Spatial" parent="."]
 transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.19083, 2.01051 )
-

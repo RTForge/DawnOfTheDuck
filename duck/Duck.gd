@@ -50,13 +50,13 @@ func _ready():
 			shootCooldownTime = 3
 	
 	add_to_group("ducks")
-	var fireball := load("res://Fireball.tscn")
+	var fireball := preload("res://Fireball.tscn")
 	for i in range(maxFireballs):
 		var fb = fireball.instance()
 		fireballPool.append(fb)
 		get_parent().call_deferred("add_child", fb)
 	
-	var bulletHole = load("res://BulletHole.tscn")
+	var bulletHole = preload("res://BulletHole.tscn")
 	for i in range(maxBulletHoles):
 		var hole = bulletHole.instance()
 		duckBody.add_child(hole)
