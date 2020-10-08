@@ -13,6 +13,7 @@ void fragment() {
 	float mix2 = step(t1, 0.5);
 	float mix1 = 1.0 - max(mix3, mix2);
 	ALBEDO = (color1 * mix1 + color2 * mix2 + color3 * mix3).rgb;
+	ROUGHNESS = 0.5;
 	
 //	vec2 tiled_uvs = UV * uv_scale;
 //	vec2 uv_offset = vec2(0, 0);

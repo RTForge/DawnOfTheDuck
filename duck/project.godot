@@ -8,9 +8,26 @@
 
 config_version=4
 
-_global_script_classes=[  ]
+_global_script_classes=[ {
+"base": "VisualShaderNodeCustom",
+"class": "VS_Panner",
+"language": "GDScript",
+"path": "res://plugins/vs_panner.gd"
+}, {
+"base": "VisualShaderNodeCustom",
+"class": "VS_WaveHeight",
+"language": "GDScript",
+"path": "res://plugins/vs_waveheight.gd"
+}, {
+"base": "VisualShaderNodeCustom",
+"class": "VS_WaveNormal",
+"language": "GDScript",
+"path": "res://plugins/vs_wavenormal.gd"
+} ]
 _global_script_class_icons={
-
+"VS_Panner": "",
+"VS_WaveHeight": "",
+"VS_WaveNormal": ""
 }
 
 [application]

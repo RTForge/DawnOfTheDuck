@@ -142,6 +142,7 @@ surfaces/0 = {
 
 [sub_resource type="SpatialMaterial" id=13]
 albedo_color = Color( 0, 0, 0, 1 )
+roughness = 0.1
 
 [sub_resource type="ArrayMesh" id=14]
 surfaces/0 = {
