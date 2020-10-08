@@ -9,7 +9,7 @@ func _ready():
 	pass # Replace with function body.
 
 func round_to_dec(num, digit):
-    return round(num * pow(10.0, digit)) / pow(10.0, digit)
+	return round(num * pow(10.0, digit)) / pow(10.0, digit)
 
 func setSurvivalTime(time):
 	var survivalString : String

@@ -21,4 +21,3 @@ void fragment() {
 [resource]
 shader = SubResource( 1 )
 shader_param/texture_albedo = ExtResource( 1 )
-
