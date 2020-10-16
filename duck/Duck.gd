@@ -75,8 +75,8 @@ func process_hit(var position : Vector3, var normal : Vector3):
 	
 	if hits < maxBulletHoles:
 		var hole : Spatial = bulletHoles[hits]
-		hole.translation = localPos
-		hole.look_at(to_local(position - normal), Vector3.UP)
+		hole.global_transform.origin = position
+		hole.look_at(position - normal, Vector3.UP)
 		hole.show()
 	
 	if (hits < maxSinkers):
@@ -189,7 +189,6 @@ func disable():
 		hits = 0
 		
 		for i in range(maxBulletHoles):
-			#bulletHoles[i].translation = Vector3.UP
 			bulletHoles[i].hide()
 		
 		for i in range(maxSinkers):

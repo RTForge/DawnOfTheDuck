@@ -95,6 +95,11 @@ shoot={
 3d_physics/layer_5="Fireball"
 3d_physics/layer_6="EnemyHitArea"
 
+[physics]
+
+3d/active_soft_world=false
+3d/smooth_trimesh_collision=true
+
 [rendering]
 
 threads/thread_model=2

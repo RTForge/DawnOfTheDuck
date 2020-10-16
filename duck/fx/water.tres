@@ -76,19 +76,19 @@ source = 5
 
 [sub_resource type="VisualShaderNodeVectorScalarMix" id=23]
 
-[sub_resource type="VisualShaderNodeScalarUniform" id=31]
+[sub_resource type="VisualShaderNodeScalarUniform" id=24]
 uniform_name = "time"
 
-[sub_resource type="VisualShaderNodeInput" id=24]
+[sub_resource type="VisualShaderNodeInput" id=25]
 input_name = "vertex"
 
-[sub_resource type="VisualShaderNodeVec3Uniform" id=25]
+[sub_resource type="VisualShaderNodeVec3Uniform" id=26]
 uniform_name = "amplitude"
 
-[sub_resource type="VisualShaderNodeCustom" id=26]
+[sub_resource type="VisualShaderNodeCustom" id=27]
 script = ExtResource( 2 )
 
-[sub_resource type="VisualShaderNodeVec3Uniform" id=27]
+[sub_resource type="VisualShaderNodeVec3Uniform" id=28]
 uniform_name = "frequency"
 
 [sub_resource type="VisualShaderNodeVec3Uniform" id=29]
@@ -296,19 +296,19 @@ void light() {
 "
 graph_offset = Vector2( -904.795, -46 )
 flags/world_vertex_coords = true
-nodes/vertex/3/node = SubResource( 24 )
+nodes/vertex/3/node = SubResource( 25 )
 nodes/vertex/3/position = Vector2( -360, 80 )
-nodes/vertex/4/node = SubResource( 25 )
+nodes/vertex/4/node = SubResource( 26 )
 nodes/vertex/4/position = Vector2( -480, 160 )
-nodes/vertex/5/node = SubResource( 26 )
+nodes/vertex/5/node = SubResource( 27 )
 nodes/vertex/5/position = Vector2( -23, 159 )
-nodes/vertex/6/node = SubResource( 27 )
+nodes/vertex/6/node = SubResource( 28 )
 nodes/vertex/6/position = Vector2( -480, 240 )
 nodes/vertex/8/node = SubResource( 29 )
 nodes/vertex/8/position = Vector2( -460, 420 )
 nodes/vertex/9/node = SubResource( 30 )
 nodes/vertex/9/position = Vector2( -20, 340 )
-nodes/vertex/10/node = SubResource( 31 )
+nodes/vertex/10/node = SubResource( 24 )
 nodes/vertex/10/position = Vector2( -460, 340 )
 nodes/vertex/connections = PoolIntArray( 5, 0, 0, 0, 3, 0, 5, 0, 4, 0, 5, 1, 6, 0, 5, 2, 8, 0, 5, 4, 3, 0, 9, 0, 4, 0, 9, 1, 6, 0, 9, 2, 8, 0, 9, 4, 9, 0, 0, 1, 10, 0, 9, 3, 10, 0, 5, 3 )
 nodes/fragment/0/position = Vector2( 640, 160 )

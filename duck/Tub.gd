@@ -30,7 +30,6 @@ func process_hit(var position : Vector3, var normal : Vector3):
 	player.play()
 	
 	var hole : Spatial = bulletHoles[currentBulletHit]
-	var localPos := to_local(position)
 	hole.global_transform.origin = position
 	hole.look_at(position - normal, Vector3.UP)
 	currentBulletHit = (currentBulletHit + 1) % maxBulletHoles

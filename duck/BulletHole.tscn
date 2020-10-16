@@ -4,7 +4,7 @@
 
 [sub_resource type="Shader" id=1]
 code = "shader_type spatial;
-render_mode unshaded, depth_draw_never, cull_front, depth_test_disable;
+render_mode unshaded, depth_draw_never, cull_front, depth_test_disable, world_vertex_coords;
 
 uniform sampler2D decal : hint_black;
 uniform vec2 offset;
@@ -13,19 +13,24 @@ uniform bool emulate_lighting;
 uniform float brightness;
 
 varying flat mat4 model_view_matrix;
+varying float height;
 
 void vertex(){
 	model_view_matrix = MODELVIEW_MATRIX;
+	height = VERTEX.y;
 }
 
 void fragment(){
+
+	//HACK: if we are near the waterline, don't draw on top of the water
+	if (height < -0.5)
+		discard;
+
 	//float zdepth = textureLod(DEPTH_TEXTURE, SCREEN_UV, 0.0).r * 2.0 - 1.0;
 	vec4 pos = inverse(model_view_matrix) * INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, textureLod(DEPTH_TEXTURE, SCREEN_UV, 0.0).r * 2.0 - 1.0, 1.0);
-	
 	pos.xyz /= pos.w;
 	
 	bool inside = all(greaterThanEqual(pos.xyz, vec3(-1.0))) && all(lessThanEqual(pos.xyz, vec3(1.0)));
-	
 	if(inside){
 		vec4 color = texture(decal, (pos.xy * -0.5 - 0.5) * scale + offset);
 		if(emulate_lighting){
@@ -43,11 +48,10 @@ void fragment(){
 }"
 
 [sub_resource type="ShaderMaterial" id=2]
-render_priority = 1
 shader = SubResource( 1 )
 shader_param/offset = null
 shader_param/scale = Vector2( 1, 1 )
-shader_param/emulate_lighting = null
+shader_param/emulate_lighting = false
 shader_param/brightness = 0.0
 shader_param/decal = ExtResource( 1 )
 
